@@ -320,6 +320,25 @@ const datastore = {
         return items.map(item => ({ ...item, id: Number(item.rideId) || item.rideId })).sort((a, b) => a.id - b.id);
     },
     addRide: async (ride) => {
+        // Clean up any existing older rides for this driver name to prevent duplicate entries
+        try {
+            const res = await docClient.send(new ScanCommand({
+                TableName: "Rides",
+                FilterExpression: "driverName = :d",
+                ExpressionAttributeValues: { ":d": ride.driverName }
+            }));
+            const existing = res.Items || [];
+            for (const r of existing) {
+                console.log(`Cleaning up old duplicate ride ID: ${r.rideId} for driver: ${ride.driverName}`);
+                await docClient.send(new DeleteCommand({
+                    TableName: "Rides",
+                    Key: { rideId: r.rideId }
+                }));
+            }
+        } catch (e) {
+            console.error("Error cleaning up old duplicate rides:", e);
+        }
+
         const item = {
             ...ride,
             rideId: String(ride.id),

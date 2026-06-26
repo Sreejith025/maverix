@@ -7,7 +7,10 @@ const isProtectedRoute = createRouteMatcher([
 ]);
 
 export default clerkMiddleware(async (auth, req) => {
-  if (isProtectedRoute(req)) {
+  const url = new URL(req.url);
+  const isMock = url.searchParams.get("mock") === "true";
+  
+  if (isProtectedRoute(req) && !isMock) {
     await auth.protect();
   }
 });

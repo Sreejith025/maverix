@@ -21,6 +21,14 @@ export default function RootLayout({ children }) {
   return (
     <ClerkProvider>
       <html lang="en" className={`${outfit.variable} ${inter.variable} h-full antialiased`}>
+        <head>
+          <link 
+            rel="stylesheet" 
+            href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" 
+            integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" 
+            crossOrigin="" 
+          />
+        </head>
         <body className="min-h-full flex flex-col bg-white text-slate-900 font-sans">
           {children}
         </body>

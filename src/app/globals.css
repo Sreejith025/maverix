@@ -20,21 +20,37 @@
   --color-slate-200: #e2e8f0;
   --color-slate-100: #f1f5f9;
   --color-slate-50: #f8fafc;
-  
+
   --font-sans: 'Outfit', 'Inter', sans-serif;
-  
+
   --animate-float: float 6s ease-in-out infinite;
   --animate-pulse-slow: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
   --animate-car-drive: car-drive 12s linear infinite;
 
   @keyframes float {
-    0%, 100% { transform: translateY(0); }
-    50% { transform: translateY(-10px); }
+
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+
+    50% {
+      transform: translateY(-10px);
+    }
   }
+
   @keyframes car-drive {
-    0% { transform: translateX(-10px) rotate(0deg); }
-    50% { transform: translateX(10px) rotate(2deg); }
-    100% { transform: translateX(-10px) rotate(0deg); }
+    0% {
+      transform: translateX(-10px) rotate(0deg);
+    }
+
+    50% {
+      transform: translateX(10px) rotate(2deg);
+    }
+
+    100% {
+      transform: translateX(-10px) rotate(0deg);
+    }
   }
 }
 
@@ -72,6 +88,7 @@ body {
 .shadow-premium-hover {
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
+
 .shadow-premium-hover:hover {
   transform: translateY(-4px);
   box-shadow: 0 20px 40px -15px rgba(15, 23, 42, 0.12), 0 4px 6px -2px rgba(15, 23, 42, 0.05);
@@ -94,13 +111,16 @@ body {
   width: 6px;
   height: 6px;
 }
+
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
 ::-webkit-scrollbar-thumb {
   background: rgba(148, 163, 184, 0.3);
   border-radius: 4px;
 }
+
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(148, 163, 184, 0.5);
 }

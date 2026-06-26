@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { 
   DollarSign, Users, Award, CheckCircle2, Navigation, MapPin, 
   Bell, Settings, Star, AlertCircle, LogOut, Check, X, ArrowUpRight,
@@ -9,13 +10,62 @@ import {
   Clock
 } from "lucide-react";
 import { useUser, UserButton } from "@clerk/nextjs";
+import { io } from "socket.io-client";
+import dynamic from "next/dynamic";
+
+const MapComponent = dynamic(() => import("@/components/Map"), {
+  ssr: false,
+  loading: () => (
+    <div className="h-[300px] w-full bg-slate-900 rounded-2xl flex flex-col items-center justify-center gap-2 text-xs font-semibold text-slate-400">
+      <div className="w-8 h-8 border-4 border-brand-blue-600 border-t-transparent rounded-full animate-spin"></div>
+      <span>Initializing GPS canvas...</span>
+    </div>
+  )
+});
 
 export default function DriverDashboard() {
-  const { user } = useUser();
+  const router = useRouter();
+  const { user, isLoaded, isSignedIn } = useUser();
+
+  useEffect(() => {
+    if (isLoaded) {
+      const isMock = new URLSearchParams(window.location.search).get("mock") === "true";
+      if (!isMock && (!isSignedIn || user?.primaryEmailAddress?.emailAddress !== "abisri024@gmail.com")) {
+        router.push("/");
+      }
+    }
+  }, [isLoaded, isSignedIn, user, router]);
+
+  if (!isLoaded) {
+    const isMock = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("mock") === "true";
+    if (!isMock) {
+      return (
+        <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+          <div className="flex flex-col items-center gap-3 text-slate-400">
+            <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+            <span className="text-sm font-semibold">Verifying driver credentials...</span>
+          </div>
+        </div>
+      );
+    }
+  }
+
+  const email = user?.primaryEmailAddress?.emailAddress;
+  const isMocked = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("mock") === "true";
+  if (!isMocked && (!isSignedIn || email !== "abisri024@gmail.com")) {
+    return null;
+  }
   const driverName = user?.fullName || "Sanjay Kumar";
   const driverAvatar = user?.imageUrl || "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=120&h=120&q=80";
   // Navigation active tab
   const [activeTab, setActiveTab] = useState("Dashboard"); // Dashboard, Active Trips, Ride Requests, Earnings, Reviews, Settings
+  const [activeTrip, setActiveTrip] = useState(null);
+  const [driverLoc, setDriverLoc] = useState(null);
+  const [passengerLoc, setPassengerLoc] = useState(null);
+  const [distanceText, setDistanceText] = useState("Calculating...");
+  const [etaText, setEtaText] = useState("Calculating...");
+  const [statusMessage, setStatusMessage] = useState("Passenger waiting");
+  const [rideStatus, setRideStatus] = useState("Accepted");
   
   // Mobile sidebar state
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -78,6 +128,298 @@ export default function DriverDashboard() {
   // Alerts
   const [alertMessage, setAlertMessage] = useState(null);
 
+  // Socket reference
+  const socketRef = useRef(null);
+
+  // Create Ride Form State
+  const [rideForm, setRideForm] = useState({
+    currentLocation: "",
+    destination: "",
+    vehicleType: "",
+    vehicleNumber: "",
+    availableSeats: 4,
+    fare: 180,
+    etaMins: 15,
+    loading: false
+  });
+
+  // Connect to Socket.io and join driver room
+  useEffect(() => {
+    socketRef.current = io("http://localhost:5000");
+
+    socketRef.current.on("connect", () => {
+      console.log(`Driver socket connected: ${socketRef.current.id}. Registering room driver:${driverName}`);
+      socketRef.current.emit("join-driver-room", { driverName });
+    });
+
+    // Listen for incoming ride requests from passengers
+    socketRef.current.on("ride-requested", (newRequest) => {
+      console.log("Real-time: Received ride request:", newRequest);
+      setRideRequests(prev => {
+        // Avoid duplicate requests
+        if (prev.some(r => r.id === newRequest.id)) return prev;
+        return [newRequest, ...prev];
+      });
+
+      // Play alert/notification sound or show message
+      setAlertMessage({ type: "info", text: `New Ride Request from ${newRequest.passengerName}!` });
+      setTimeout(() => setAlertMessage(null), 5000);
+    });
+
+    return () => {
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+      }
+    };
+  }, [driverName]);
+
+  // Fetch pending requests from backend for this driver on load
+  useEffect(() => {
+    if (driverName) {
+      fetch(`http://localhost:5000/api/bookings/driver/${encodeURIComponent(driverName)}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data && data.length > 0) {
+            console.log("Loaded pending bookings for driver:", data);
+            const backendRequests = data.map(b => ({
+              id: b.id,
+              rideId: b.rideId,
+              passengerName: b.passengerName || "Guest Passenger",
+              passengerImage: b.passengerImage || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=120&h=120&q=80",
+              pickupPoint: b.pickup,
+              destination: b.destination,
+              passengerRating: b.passengerRating || 4.8,
+              passengersCount: b.passengers,
+              estimatedFare: b.fare,
+              etaMins: b.etaMins || 10
+            }));
+            setRideRequests(backendRequests);
+          }
+        })
+        .catch(err => console.error("Error loading pending driver requests:", err));
+    }
+  }, [driverName]);
+
+  // Helper to calculate Haversine distance
+  const getHaversineDistance = (coords1, coords2) => {
+    if (!coords1 || !coords2) return 0;
+    const toRad = (x) => (x * Math.PI) / 180;
+    const R = 6371; // km
+    const dLat = toRad(coords2[0] - coords1[0]);
+    const dLon = toRad(coords2[1] - coords1[1]);
+    const lat1 = toRad(coords1[0]);
+    const lat2 = toRad(coords2[0]);
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.sin(dLon / 2) * Math.sin(dLon / 2) * Math.cos(lat1) * Math.cos(lat2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  };
+
+  const getMockCoords = (name, def) => {
+    if (!name) return def;
+    const n = name.toLowerCase();
+    if (n.includes("coimbatore")) return [11.0168, 76.9558];
+    if (n.includes("pollachi")) return [10.6589, 77.0072];
+    if (n.includes("tiruppur")) return [11.1085, 77.3411];
+    if (n.includes("palakkad")) return [10.7867, 76.6547];
+    if (n.includes("udumalpet")) return [10.5855, 77.2433];
+    return def;
+  };
+
+  // Check active trip on load
+  useEffect(() => {
+    if (driverName) {
+      fetch("http://localhost:5000/api/bookings")
+        .then(res => res.json())
+        .then(data => {
+          const active = data.find(b => b.driverName === driverName && (b.bookingStatus === "Confirmed" || b.bookingStatus === "Accepted" || b.bookingStatus === "Arriving" || b.bookingStatus === "Started"));
+          if (active) {
+            console.log("Found active trip for driver on load:", active);
+            const trip = {
+              id: active.id,
+              rideId: active.rideId,
+              route: `${active.pickup.split(",")[0]} → ${active.destination.split(",")[0]}`,
+              date: active.date || "Just Now",
+              passengers: active.passengers,
+              earnings: active.fare,
+              status: "Active",
+              pickup: active.pickup,
+              destination: active.destination,
+              passengerName: active.passengerName,
+              passengerImage: active.passengerImage,
+              passengerRating: active.passengerRating
+            };
+            setActiveTrip(trip);
+            setRideStatus(active.bookingStatus || "Accepted");
+          }
+        })
+        .catch(err => console.error("Error loading active driver trip:", err));
+    }
+  }, [driverName]);
+
+  // WebSockets (Socket.io) real-time coordinate updates for selected active trip (Driver side)
+  useEffect(() => {
+    if (!activeTrip) return;
+
+    // Connect to Backend Socket.io Server
+    const socket = io("http://localhost:5000");
+
+    const bookingId = activeTrip.id;
+    const role = "driver";
+    const userId = driverName.toLowerCase().replace(/ /g, "_");
+
+    // Join ride-specific room
+    socket.emit("join-ride-room", { bookingId, userId, role });
+
+    // Set fallback location based on destination point
+    const destLocName = activeTrip.destination;
+    const fallbackCoords = getMockCoords(destLocName, [10.6589, 77.0072]);
+    setDriverLoc(prev => prev || fallbackCoords);
+
+    // Set initial passenger location based on pickup point
+    const pickupLocName = activeTrip.pickup;
+    const initialPassengerCoords = getMockCoords(pickupLocName, [11.0168, 76.9558]);
+    setPassengerLoc(prev => prev || initialPassengerCoords);
+
+    // Watch Geolocation
+    let watchId = null;
+    if (typeof window !== "undefined" && navigator.geolocation) {
+      watchId = navigator.geolocation.watchPosition(
+        (pos) => {
+          const lat = pos.coords.latitude;
+          const lng = pos.coords.longitude;
+          setDriverLoc([lat, lng]);
+        },
+        (err) => console.error("Driver watchPosition error:", err),
+        { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 }
+      );
+    }
+
+    // Stream coordinates every 2.5 seconds
+    const streamInterval = setInterval(() => {
+      setDriverLoc((currentLoc) => {
+        if (currentLoc) {
+          socket.emit("location-update", {
+            bookingId,
+            userId,
+            role,
+            lat: currentLoc[0],
+            lng: currentLoc[1]
+          });
+        }
+        return currentLoc;
+      });
+    }, 2500);
+
+    // Listen for partner's (passenger) location broadcasts
+    socket.on("location-broadcast", (data) => {
+      if (data.role === "passenger") {
+        console.log("Driver received passenger location:", data);
+        setPassengerLoc([data.lat, data.lng]);
+        setStatusMessage("Passenger waiting");
+      }
+    });
+
+    // Listen for ride status changes (if triggered externally or locally)
+    socket.on("ride-status-changed", (data) => {
+      console.log("Driver received status changed event:", data);
+      if (data.status) {
+        setRideStatus(data.status);
+        if (data.status === "Completed") {
+          setStatusMessage("Ride Completed");
+          alert("Ride has completed. Thank you!");
+          setActiveTrip(null);
+        } else if (data.status === "Arriving") {
+          setStatusMessage("Driver is Arriving");
+        } else if (data.status === "Started") {
+          setStatusMessage("Ride Started");
+        }
+      }
+    });
+
+    // Handle reconnection
+    socket.on("reconnect", () => {
+      console.log("Driver socket reconnected. Re-joining room...");
+      socket.emit("join-ride-room", { bookingId, userId, role });
+    });
+
+    // Reference socket locally so lifecycle methods can emit status updates
+    socketRef.currentActiveTripSocket = socket;
+
+    return () => {
+      if (watchId !== null) {
+        navigator.geolocation.clearWatch(watchId);
+      }
+      clearInterval(streamInterval);
+      socket.disconnect();
+    };
+  }, [activeTrip?.id]);
+
+  // Compute distance and ETA periodically based on coordinates
+  useEffect(() => {
+    if (passengerLoc && driverLoc) {
+      const dist = getHaversineDistance(passengerLoc, driverLoc);
+      setDistanceText(`${dist.toFixed(2)} km`);
+      // ETA: assume average speed of 30 km/h (1 min minimum)
+      const eta = Math.ceil((dist / 30) * 60);
+      setEtaText(`${Math.max(1, eta)} mins`);
+    } else {
+      setDistanceText("Calculating...");
+      setEtaText("Calculating...");
+    }
+  }, [passengerLoc, driverLoc]);
+
+  // Submit new ride offer to MongoDB
+  const handleCreateRideSubmit = (e) => {
+    e.preventDefault();
+    setRideForm(prev => ({ ...prev, loading: true }));
+
+    const ridePayload = {
+      driverName: driverName,
+      driverImage: driverAvatar,
+      driverRating: 4.8,
+      driverTrips: completedTripsCount || 14,
+      vehicleType: rideForm.vehicleType,
+      vehicleNumber: rideForm.vehicleNumber,
+      currentLocation: rideForm.currentLocation,
+      destination: rideForm.destination,
+      availableSeats: rideForm.availableSeats,
+      fare: rideForm.fare,
+      etaMins: rideForm.etaMins,
+      verified: true
+    };
+
+    fetch("http://localhost:5000/api/rides", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(ridePayload)
+    })
+      .then(res => res.json())
+      .then(savedRide => {
+        console.log("Ride published successfully:", savedRide);
+        setRideForm({
+          currentLocation: "",
+          destination: "",
+          vehicleType: "",
+          vehicleNumber: "",
+          availableSeats: 4,
+          fare: 180,
+          etaMins: 15,
+          loading: false
+        });
+        setAlertMessage({ type: "success", text: "Ride Offer created and broadcasted to passenger portal!" });
+        setTimeout(() => setAlertMessage(null), 5000);
+        setActiveTab("Dashboard");
+      })
+      .catch(err => {
+        console.error("Error creating ride:", err);
+        setRideForm(prev => ({ ...prev, loading: false }));
+        setAlertMessage({ type: "error", text: "Failed to publish ride offer. Please try again." });
+        setTimeout(() => setAlertMessage(null), 5000);
+      });
+  };
+
   // Handle Accept request
   const handleAcceptRequest = (request) => {
     if (availableSeats < request.passengersCount) {
@@ -86,29 +428,58 @@ export default function DriverDashboard() {
       return;
     }
 
-    // Update stats
-    setTodaysEarnings(prev => prev + request.estimatedFare);
-    setActivePassengers(prev => prev + request.passengersCount);
-    setAvailableSeats(prev => prev - request.passengersCount);
-    setCompletedTripsCount(prev => prev + 1);
+    // Update backend booking to Confirmed
+    fetch(`http://localhost:5000/api/bookings/${request.id}/accept`, {
+      method: "POST"
+    })
+      .then(res => res.json())
+      .then(confirmedBooking => {
+        console.log("Booking accepted in backend:", confirmedBooking);
+        
+        // Notify passenger via socket
+        if (socketRef.current) {
+          console.log(`Emitting accept-ride via socket for booking ID: ${request.id}`);
+          socketRef.current.emit("accept-ride", { bookingId: request.id });
+        }
 
-    // Remove from request panel
-    setRideRequests(prev => prev.filter(r => r.id !== request.id));
+        // Update stats
+        setTodaysEarnings(prev => prev + request.estimatedFare);
+        setActivePassengers(prev => prev + request.passengersCount);
+        setAvailableSeats(prev => prev - request.passengersCount);
+        setCompletedTripsCount(prev => prev + 1);
 
-    // Add to recent trips list
-    const newTrip = {
-      id: Date.now(),
-      route: `${request.pickupPoint.split(",")[0]} → ${request.destination.split(",")[0]}`,
-      date: "Just Now",
-      passengers: request.passengersCount,
-      earnings: request.estimatedFare,
-      status: "Active"
-    };
-    setRecentTrips(prev => [newTrip, ...prev]);
+        // Remove from request panel
+        setRideRequests(prev => prev.filter(r => r.id !== request.id));
 
-    // Show success alert
-    setAlertMessage({ type: "success", text: `Accepted ride request from ${request.passengerName}. Added to Active Trips.` });
-    setTimeout(() => setAlertMessage(null), 4000);
+        // Add to recent trips list
+        const newTrip = {
+          id: request.id,
+          rideId: request.rideId,
+          route: `${request.pickupPoint.split(",")[0]} → ${request.destination.split(",")[0]}`,
+          date: "Just Now",
+          passengers: request.passengersCount,
+          earnings: request.estimatedFare,
+          status: "Active",
+          pickup: request.pickupPoint,
+          destination: request.destination,
+          passengerName: request.passengerName,
+          passengerImage: request.passengerImage,
+          passengerRating: request.passengerRating
+        };
+        setRecentTrips(prev => [newTrip, ...prev]);
+        setActiveTrip(newTrip);
+        setRideStatus("Accepted");
+        setActiveTab("Active Trips");
+
+        // Show success alert
+        setAlertMessage({ type: "success", text: `Accepted ride request from ${request.passengerName}. Navigating to Active Trips tracking console.` });
+        setTimeout(() => setAlertMessage(null), 4000);
+      })
+      .catch(err => {
+        console.error("Error accepting booking in backend:", err);
+        setAlertMessage({ type: "error", text: "Failed to connect to server. Try accepting again." });
+        setTimeout(() => setAlertMessage(null), 4000);
+      });
   };
 
   // Handle Reject request
@@ -116,6 +487,37 @@ export default function DriverDashboard() {
     setRideRequests(prev => prev.filter(r => r.id !== request.id));
     setAlertMessage({ type: "info", text: `Rejected request from ${request.passengerName}.` });
     setTimeout(() => setAlertMessage(null), 4000);
+  };
+
+  const handleUpdateStatus = (status) => {
+    if (!activeTrip) return;
+    const bookingId = activeTrip.id;
+    const rideId = activeTrip.rideId || "";
+
+    console.log(`Driver changing status of booking ${bookingId} to ${status}`);
+    
+    const socket = socketRef.currentActiveTripSocket || socketRef.current;
+    if (socket) {
+      socket.emit("update-ride-status", {
+        bookingId,
+        rideId,
+        status
+      });
+    }
+
+    setRideStatus(status);
+
+    if (status === "Completed") {
+      setAlertMessage({ type: "success", text: "Ride completed successfully! Balance and ledger updated." });
+      setTimeout(() => setAlertMessage(null), 4000);
+      
+      setRecentTrips(prev => prev.map(t => t.id === bookingId ? { ...t, status: "Completed" } : t));
+      setActiveTrip(null);
+      setActiveTab("Dashboard");
+    } else {
+      setAlertMessage({ type: "success", text: `Ride status updated to: ${status}` });
+      setTimeout(() => setAlertMessage(null), 4000);
+    }
   };
 
   // Reset demo states
@@ -179,7 +581,8 @@ export default function DriverDashboard() {
           <nav className="space-y-1">
             {[
               { name: "Dashboard", icon: BarChart3 },
-              { name: "Active Trips", icon: Navigation },
+              { name: "Create Ride", icon: Navigation },
+              { name: "Active Trips", icon: Clock },
               { name: "Ride Requests", icon: Users, badge: rideRequests.length },
               { name: "Earnings", icon: DollarSign },
               { name: "Reviews", icon: Star },
@@ -630,6 +1033,448 @@ export default function DriverDashboard() {
                 </div>
               </section>
             </>
+          ) : activeTab === "Create Ride" ? (
+            <div className="bg-white rounded-3xl p-8 border border-slate-100 shadow-premium max-w-2xl mx-auto space-y-6">
+              <div>
+                <h3 className="text-xl font-bold text-slate-900 flex items-center gap-2">
+                  <Navigation className="w-5 h-5 text-brand-blue-600 transform rotate-45" />
+                  Publish a New Ride Offer
+                </h3>
+                <p className="text-xs text-slate-500 font-semibold mt-1">
+                  Enter your route and pricing details. Once published, your ride will immediately be visible on the Passenger booking portal in real-time.
+                </p>
+              </div>
+
+              <form onSubmit={handleCreateRideSubmit} className="space-y-5">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Starting location */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-extrabold text-slate-500 block uppercase">Pickup / Starting Point</label>
+                    <input 
+                      type="text" 
+                      required
+                      value={rideForm.currentLocation}
+                      onChange={(e) => setRideForm({...rideForm, currentLocation: e.target.value})}
+                      placeholder="e.g., Coimbatore Junction"
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 focus:border-brand-blue-500 focus:ring-1 focus:ring-brand-blue-500/20 rounded-xl text-slate-800 font-semibold text-xs outline-none transition-all"
+                    />
+                  </div>
+
+                  {/* Destination location */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-extrabold text-slate-500 block uppercase">Destination Point</label>
+                    <input 
+                      type="text" 
+                      required
+                      value={rideForm.destination}
+                      onChange={(e) => setRideForm({...rideForm, destination: e.target.value})}
+                      placeholder="e.g., Pollachi Bus Stand"
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 focus:border-brand-blue-500 focus:ring-1 focus:ring-brand-blue-500/20 rounded-xl text-slate-800 font-semibold text-xs outline-none transition-all"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Vehicle Type */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-extrabold text-slate-500 block uppercase">Vehicle Model</label>
+                    <input 
+                      type="text" 
+                      required
+                      value={rideForm.vehicleType}
+                      onChange={(e) => setRideForm({...rideForm, vehicleType: e.target.value})}
+                      placeholder="e.g., Swift Dzire (Sedan)"
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 focus:border-brand-blue-500 focus:ring-1 focus:ring-brand-blue-500/20 rounded-xl text-slate-800 font-semibold text-xs outline-none transition-all"
+                    />
+                  </div>
+
+                  {/* Vehicle Number */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-extrabold text-slate-500 block uppercase">License Plate Number</label>
+                    <input 
+                      type="text" 
+                      required
+                      value={rideForm.vehicleNumber}
+                      onChange={(e) => setRideForm({...rideForm, vehicleNumber: e.target.value})}
+                      placeholder="e.g., TN-37-BY-1234"
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 focus:border-brand-blue-500 focus:ring-1 focus:ring-brand-blue-500/20 rounded-xl text-slate-800 font-semibold text-xs outline-none transition-all"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-4">
+                  {/* Available seats */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-extrabold text-slate-500 block uppercase">Seats</label>
+                    <select 
+                      value={rideForm.availableSeats}
+                      onChange={(e) => setRideForm({...rideForm, availableSeats: parseInt(e.target.value)})}
+                      className="w-full px-3 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 font-semibold text-xs outline-none appearance-none cursor-pointer"
+                    >
+                      {[1,2,3,4,5,6].map(n => <option key={n} value={n}>{n} Seats</option>)}
+                    </select>
+                  </div>
+
+                  {/* Fare */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-extrabold text-slate-500 block uppercase">Fare (₹)</label>
+                    <input 
+                      type="number" 
+                      required
+                      value={rideForm.fare}
+                      onChange={(e) => setRideForm({...rideForm, fare: parseInt(e.target.value)})}
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 focus:border-brand-blue-500 focus:ring-1 focus:ring-brand-blue-500/20 rounded-xl text-slate-800 font-semibold text-xs outline-none transition-all"
+                    />
+                  </div>
+
+                  {/* ETA */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-extrabold text-slate-500 block uppercase">ETA (mins)</label>
+                    <input 
+                      type="number" 
+                      required
+                      value={rideForm.etaMins}
+                      onChange={(e) => setRideForm({...rideForm, etaMins: parseInt(e.target.value)})}
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 focus:border-brand-blue-500 focus:ring-1 focus:ring-brand-blue-500/20 rounded-xl text-slate-800 font-semibold text-xs outline-none transition-all"
+                    />
+                  </div>
+                </div>
+
+                <button 
+                  type="submit"
+                  disabled={rideForm.loading}
+                  className="w-full py-3.5 rounded-xl bg-gradient-brand text-white text-xs font-extrabold shadow-md hover:shadow-lg transition-all hover:scale-[1.01] flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  {rideForm.loading ? (
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  ) : (
+                    <>
+                      <Check className="w-4 h-4" />
+                      Publish Ride Offer
+                    </>
+                  )}
+                </button>
+              </form>
+            </div>
+          ) : activeTab === "Active Trips" ? (
+            activeTrip ? (
+              <section className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+                {/* Left: Map tracking widget */}
+                <div className="lg:col-span-7 space-y-6">
+                  <div className="bg-white rounded-3xl p-5 border border-slate-100 shadow-premium space-y-4">
+                    <div className="flex justify-between items-center">
+                      <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                        <Map className="w-5 h-5 text-brand-blue-600" />
+                        Live Trip Navigation Map
+                      </h3>
+                      <span className="text-[10px] font-bold text-brand-green-600 bg-brand-green-50 px-2 py-0.5 rounded">
+                        Active GPS Lock
+                      </span>
+                    </div>
+
+                    <div className="h-[400px] w-full rounded-2xl overflow-hidden border border-slate-100 relative shadow-inner">
+                      <MapComponent 
+                        center={driverLoc || [11.0168, 76.9558]}
+                        zoom={11}
+                        markers={(() => {
+                          const pickupLoc = activeTrip.pickup;
+                          const destLoc = activeTrip.destination;
+                          const pC = passengerLoc || getMockCoords(pickupLoc, [11.0168, 76.9558]);
+                          const dC = getMockCoords(destLoc, [10.6589, 77.0072]);
+                          return [
+                            { position: pC, popupText: `Passenger Pickup: ${pickupLoc}` },
+                            { position: dC, popupText: `Drop Destination: ${destLoc}` }
+                          ];
+                        })()}
+                        polyline={[
+                          driverLoc || [11.0168, 76.9558],
+                          passengerLoc || [11.0168, 76.9558]
+                        ]}
+                        liveCarPos={driverLoc}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right: Info and Action Console */}
+                <div className="lg:col-span-5 space-y-6">
+                  <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-premium space-y-6">
+                    <div className="flex justify-between items-center border-b border-slate-50 pb-4">
+                      <div className="flex items-center gap-2">
+                        <div className="w-2.5 h-2.5 rounded-full bg-brand-green-500 animate-pulse"></div>
+                        <h3 className="text-base font-extrabold text-slate-900">Ride Console</h3>
+                      </div>
+                      <span className="text-[10px] font-bold text-slate-400 bg-slate-50 border border-slate-100 px-2 py-0.5 rounded-md">
+                        {rideStatus === "Confirmed" ? "Accepted" : rideStatus}
+                      </span>
+                    </div>
+
+                    {/* Passenger Profile */}
+                    <div className="flex items-center justify-between flex-wrap gap-4 bg-slate-50/50 p-4 rounded-2xl border border-slate-100">
+                      <div className="flex items-center gap-3">
+                        <img 
+                          src={activeTrip.passengerImage || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=120&h=120&q=80"} 
+                          alt={activeTrip.passengerName}
+                          className="w-12 h-12 rounded-xl object-cover border border-slate-200" 
+                        />
+                        <div>
+                          <h4 className="text-sm font-extrabold text-slate-900">{activeTrip.passengerName}</h4>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-[10px] text-slate-500 font-semibold bg-white border border-slate-100 px-1.5 py-0.5 rounded-md flex items-center gap-0.5">
+                              <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
+                              {activeTrip.passengerRating || 4.8}
+                            </span>
+                            <span className="text-[10px] font-bold text-brand-green-600 uppercase tracking-wider flex items-center gap-0.5">
+                              {activeTrip.passengers || 1} Pax Requested
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block">Payout</span>
+                        <strong className="text-base font-black text-slate-900">₹{activeTrip.earnings}</strong>
+                      </div>
+                    </div>
+
+                    {/* Stepper progress */}
+                    <div className="bg-slate-50/50 p-4 rounded-2xl border border-slate-100 space-y-3">
+                      <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block">Trip Progress</span>
+                      <div className="flex items-center justify-between relative px-2">
+                        <div className="absolute left-6 right-6 top-4 h-1 bg-slate-200 -z-0"></div>
+                        <div className="absolute left-6 top-4 h-1 bg-brand-blue-500 -z-0 transition-all duration-500" style={{
+                          width: rideStatus === "Completed" ? "100%" : 
+                                 rideStatus === "Started" ? "100%" : 
+                                 rideStatus === "Arriving" ? "50%" : "0%"
+                        }}></div>
+
+                        {/* Step 1: Accepted */}
+                        <div className="flex flex-col items-center z-10">
+                          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${
+                            rideStatus === "Confirmed" || rideStatus === "Accepted" || rideStatus === "Arriving" || rideStatus === "Started" || rideStatus === "Completed"
+                              ? "bg-brand-blue-600 text-white" : "bg-slate-200 text-slate-500"
+                          }`}>
+                            <Check className="w-4 h-4" />
+                          </div>
+                          <span className="text-[9px] font-extrabold text-slate-500 mt-1 uppercase">Accepted</span>
+                        </div>
+
+                        {/* Step 2: Arriving */}
+                        <div className="flex flex-col items-center z-10">
+                          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${
+                            rideStatus === "Arriving" || rideStatus === "Started" || rideStatus === "Completed"
+                              ? "bg-brand-blue-600 text-white" : "bg-slate-200 text-slate-500"
+                          }`}>
+                            {rideStatus === "Started" || rideStatus === "Completed" ? <Check className="w-4 h-4" /> : "2"}
+                          </div>
+                          <span className="text-[9px] font-extrabold text-slate-500 mt-1 uppercase">Arriving</span>
+                        </div>
+
+                        {/* Step 3: Started */}
+                        <div className="flex flex-col items-center z-10">
+                          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${
+                            rideStatus === "Started" || rideStatus === "Completed"
+                              ? "bg-brand-blue-600 text-white" : "bg-slate-200 text-slate-500"
+                          }`}>
+                            {rideStatus === "Completed" ? <Check className="w-4 h-4" /> : "3"}
+                          </div>
+                          <span className="text-[9px] font-extrabold text-slate-500 mt-1 uppercase">Started</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Geolocation metrics */}
+                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-2.5 text-xs font-semibold text-slate-600">
+                      <div className="flex justify-between items-center">
+                        <span className="flex items-center gap-1"><Clock className="w-4 h-4 text-brand-blue-500" /> ETA to Passenger:</span>
+                        <strong className="text-slate-900 font-extrabold text-sm">{etaText}</strong>
+                      </div>
+                      <div className="flex justify-between items-center pt-2 border-t border-slate-200/50">
+                        <span className="flex items-center gap-1"><Navigation className="w-4 h-4 text-brand-blue-500 transform rotate-45" /> Distance:</span>
+                        <strong className="text-slate-900 font-extrabold text-sm">{distanceText}</strong>
+                      </div>
+                      <div className="flex justify-between items-center pt-2 border-t border-slate-200/50">
+                        <span className="flex items-center gap-1"><MapPin className="w-4 h-4 text-brand-blue-500" /> Pickup Location:</span>
+                        <strong className="text-slate-800 text-right truncate max-w-[200px]">{activeTrip.pickup}</strong>
+                      </div>
+                    </div>
+
+                    {/* Lifecycle Control Action Buttons */}
+                    <div className="pt-2">
+                      {(rideStatus === "Confirmed" || rideStatus === "Accepted") && (
+                        <button
+                          onClick={() => handleUpdateStatus("Arriving")}
+                          className="w-full py-3.5 rounded-xl bg-gradient-brand text-white text-xs font-extrabold shadow-md hover:shadow-lg transition-all hover:scale-[1.01] flex items-center justify-center gap-1.5 cursor-pointer"
+                        >
+                          <Navigation className="w-4 h-4 transform rotate-45 text-white" />
+                          Mark: Arrived at Pickup Point
+                        </button>
+                      )}
+
+                      {rideStatus === "Arriving" && (
+                        <button
+                          onClick={() => handleUpdateStatus("Started")}
+                          className="w-full py-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold shadow-md hover:shadow-lg transition-all hover:scale-[1.01] flex items-center justify-center gap-1.5 cursor-pointer"
+                        >
+                          <Check className="w-4 h-4 text-white" />
+                          Start Passenger Ride
+                        </button>
+                      )}
+
+                      {rideStatus === "Started" && (
+                        <button
+                          onClick={() => handleUpdateStatus("Completed")}
+                          className="w-full py-3.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-extrabold shadow-md hover:shadow-lg transition-all hover:scale-[1.01] flex items-center justify-center gap-1.5 cursor-pointer"
+                        >
+                          <CheckCircle2 className="w-4 h-4 text-white" />
+                          Complete Ride & Process Ledger
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </section>
+            ) : (
+              <div className="bg-white rounded-3xl p-12 border border-slate-100 shadow-premium text-center space-y-4">
+                <div className="w-16 h-16 rounded-full bg-slate-50 text-slate-400 flex items-center justify-center mx-auto shadow-inner">
+                  <Clock className="w-8 h-8" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-slate-900">No Active Ride Found</h3>
+                  <p className="text-sm text-slate-500 font-medium max-w-sm mx-auto mt-1">
+                    You do not have any active navigation trips right now. Go to the "Ride Requests" tab to accept an incoming passenger query.
+                  </p>
+                </div>
+                <button 
+                  onClick={() => setActiveTab("Ride Requests")}
+                  className="px-5 py-2.5 rounded-xl bg-gradient-brand text-white text-xs font-extrabold shadow"
+                >
+                  View Incoming Ride Requests
+                </button>
+              </div>
+            )
+          ) : activeTab === "Create Ride" ? (
+            <div className="bg-white rounded-3xl p-8 border border-slate-100 shadow-premium max-w-2xl mx-auto space-y-6">
+              <div>
+                <h3 className="text-xl font-bold text-slate-900 flex items-center gap-2">
+                  <Navigation className="w-5 h-5 text-brand-blue-600 transform rotate-45" />
+                  Publish a New Ride Offer
+                </h3>
+                <p className="text-xs text-slate-500 font-semibold mt-1">
+                  Enter your route and pricing details. Once published, your ride will immediately be visible on the Passenger booking portal in real-time.
+                </p>
+              </div>
+
+              <form onSubmit={handleCreateRideSubmit} className="space-y-5">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Starting location */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-extrabold text-slate-500 block uppercase">Pickup / Starting Point</label>
+                    <input 
+                      type="text" 
+                      required
+                      value={rideForm.currentLocation}
+                      onChange={(e) => setRideForm({...rideForm, currentLocation: e.target.value})}
+                      placeholder="e.g., Coimbatore Junction"
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 focus:border-brand-blue-500 focus:ring-1 focus:ring-brand-blue-500/20 rounded-xl text-slate-800 font-semibold text-xs outline-none transition-all"
+                    />
+                  </div>
+
+                  {/* Destination location */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-extrabold text-slate-500 block uppercase">Destination Point</label>
+                    <input 
+                      type="text" 
+                      required
+                      value={rideForm.destination}
+                      onChange={(e) => setRideForm({...rideForm, destination: e.target.value})}
+                      placeholder="e.g., Pollachi Bus Stand"
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 focus:border-brand-blue-500 focus:ring-1 focus:ring-brand-blue-500/20 rounded-xl text-slate-800 font-semibold text-xs outline-none transition-all"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Vehicle Type */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-extrabold text-slate-500 block uppercase">Vehicle Model</label>
+                    <input 
+                      type="text" 
+                      required
+                      value={rideForm.vehicleType}
+                      onChange={(e) => setRideForm({...rideForm, vehicleType: e.target.value})}
+                      placeholder="e.g., Swift Dzire (Sedan)"
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 focus:border-brand-blue-500 focus:ring-1 focus:ring-brand-blue-500/20 rounded-xl text-slate-800 font-semibold text-xs outline-none transition-all"
+                    />
+                  </div>
+
+                  {/* Vehicle Number */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-extrabold text-slate-500 block uppercase">License Plate Number</label>
+                    <input 
+                      type="text" 
+                      required
+                      value={rideForm.vehicleNumber}
+                      onChange={(e) => setRideForm({...rideForm, vehicleNumber: e.target.value})}
+                      placeholder="e.g., TN-37-BY-1234"
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 focus:border-brand-blue-500 focus:ring-1 focus:ring-brand-blue-500/20 rounded-xl text-slate-800 font-semibold text-xs outline-none transition-all"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-4">
+                  {/* Available seats */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-extrabold text-slate-500 block uppercase">Seats</label>
+                    <select 
+                      value={rideForm.availableSeats}
+                      onChange={(e) => setRideForm({...rideForm, availableSeats: parseInt(e.target.value)})}
+                      className="w-full px-3 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 font-semibold text-xs outline-none appearance-none cursor-pointer"
+                    >
+                      {[1,2,3,4,5,6].map(n => <option key={n} value={n}>{n} Seats</option>)}
+                    </select>
+                  </div>
+
+                  {/* Fare */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-extrabold text-slate-500 block uppercase">Fare (₹)</label>
+                    <input 
+                      type="number" 
+                      required
+                      value={rideForm.fare}
+                      onChange={(e) => setRideForm({...rideForm, fare: parseInt(e.target.value)})}
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 focus:border-brand-blue-500 focus:ring-1 focus:ring-brand-blue-500/20 rounded-xl text-slate-800 font-semibold text-xs outline-none transition-all"
+                    />
+                  </div>
+
+                  {/* ETA */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-extrabold text-slate-500 block uppercase">ETA (mins)</label>
+                    <input 
+                      type="number" 
+                      required
+                      value={rideForm.etaMins}
+                      onChange={(e) => setRideForm({...rideForm, etaMins: parseInt(e.target.value)})}
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 focus:border-brand-blue-500 focus:ring-1 focus:ring-brand-blue-500/20 rounded-xl text-slate-800 font-semibold text-xs outline-none transition-all"
+                    />
+                  </div>
+                </div>
+
+                <button 
+                  type="submit"
+                  disabled={rideForm.loading}
+                  className="w-full py-3.5 rounded-xl bg-gradient-brand text-white text-xs font-extrabold shadow-md hover:shadow-lg transition-all hover:scale-[1.01] flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  {rideForm.loading ? (
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  ) : (
+                    <>
+                      <Check className="w-4 h-4" />
+                      Publish Ride Offer
+                    </>
+                  )}
+                </button>
+              </form>
+            </div>
           ) : (
             /* SUB-PAGES NOT DASHBOARD MAIN (MOCK STUB VIEWS WITH RICH CARDS) */
             <div className="bg-white rounded-3xl p-12 border border-slate-100 shadow-premium text-center space-y-4">

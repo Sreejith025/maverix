@@ -27,36 +27,11 @@ export default function DriverDashboard() {
   const router = useRouter();
   const { user, isLoaded, isSignedIn } = useUser();
 
-  useEffect(() => {
-    if (isLoaded) {
-      const isMock = new URLSearchParams(window.location.search).get("mock") === "true";
-      if (!isMock && (!isSignedIn || user?.primaryEmailAddress?.emailAddress !== "abisri024@gmail.com")) {
-        router.push("/");
-      }
-    }
-  }, [isLoaded, isSignedIn, user, router]);
-
-  if (!isLoaded) {
-    const isMock = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("mock") === "true";
-    if (!isMock) {
-      return (
-        <div className="min-h-screen bg-slate-900 flex items-center justify-center">
-          <div className="flex flex-col items-center gap-3 text-slate-400">
-            <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-            <span className="text-sm font-semibold">Verifying driver credentials...</span>
-          </div>
-        </div>
-      );
-    }
-  }
-
   const email = user?.primaryEmailAddress?.emailAddress;
   const isMocked = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("mock") === "true";
-  if (!isMocked && (!isSignedIn || email !== "abisri024@gmail.com")) {
-    return null;
-  }
   const driverName = user?.fullName || "Sanjay Kumar";
   const driverAvatar = user?.imageUrl || "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=120&h=120&q=80";
+
   // Navigation active tab
   const [activeTab, setActiveTab] = useState("Dashboard"); // Dashboard, Active Trips, Ride Requests, Earnings, Reviews, Settings
   const [activeTrip, setActiveTrip] = useState(null);
@@ -369,6 +344,33 @@ export default function DriverDashboard() {
       setEtaText("Calculating...");
     }
   }, [passengerLoc, driverLoc]);
+
+  useEffect(() => {
+    if (isLoaded) {
+      const isMock = new URLSearchParams(window.location.search).get("mock") === "true";
+      if (!isMock && (!isSignedIn || user?.primaryEmailAddress?.emailAddress !== "abisri024@gmail.com")) {
+        router.push("/");
+      }
+    }
+  }, [isLoaded, isSignedIn, user, router]);
+
+  if (!isLoaded) {
+    const isMock = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("mock") === "true";
+    if (!isMock) {
+      return (
+        <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+          <div className="flex flex-col items-center gap-3 text-slate-400">
+            <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+            <span className="text-sm font-semibold">Verifying driver credentials...</span>
+          </div>
+        </div>
+      );
+    }
+  }
+
+  if (!isMocked && (!isSignedIn || email !== "abisri024@gmail.com")) {
+    return null;
+  }
 
   // Submit new ride offer to MongoDB
   const handleCreateRideSubmit = (e) => {

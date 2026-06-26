@@ -11,6 +11,7 @@ import {
 import { useUser, UserButton, SignInButton, SignUpButton } from "@clerk/nextjs";
 import dynamic from "next/dynamic";
 import LocationSearch from "@/components/LocationSearch";
+import { API_URL } from "@/config";
 
 const Map = dynamic(() => import("@/components/Map"), {
   ssr: false,
@@ -54,7 +55,7 @@ export default function Home() {
 
   // Connect to Socket.io and listen for ride-created
   useEffect(() => {
-    socketRef.current = io("http://localhost:5000");
+    socketRef.current = io(API_URL);
 
     socketRef.current.on("connect", () => {
       console.log("Homepage socket connected:", socketRef.current.id);
@@ -94,7 +95,7 @@ export default function Home() {
   }, [bookingSuccess]);
 
   useEffect(() => {
-    fetch("http://localhost:5000/api/rides")
+    fetch(`${API_URL}/api/rides`)
       .then(res => res.json())
       .then(data => {
         setRides(data);
@@ -227,7 +228,7 @@ export default function Home() {
     };
 
     // Save to Express Backend
-    fetch("http://localhost:5000/api/bookings", {
+    fetch(`${API_URL}/api/bookings`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(bookingPayload)

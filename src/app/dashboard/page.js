@@ -12,6 +12,7 @@ import {
 import { useUser, UserButton } from "@clerk/nextjs";
 import dynamic from "next/dynamic";
 import { io } from "socket.io-client";
+import { API_URL } from "@/config";
 
 const MapComponent = dynamic(() => import("@/components/Map"), {
   ssr: false,
@@ -72,7 +73,7 @@ export default function PassengerDashboard() {
 
   // Load bookings from Express API or fallback to localStorage
   useEffect(() => {
-    fetch("http://localhost:5000/api/bookings")
+    fetch(`${API_URL}/api/bookings`)
       .then(res => res.json())
       .then(data => {
         setBookings(data);
@@ -93,7 +94,7 @@ export default function PassengerDashboard() {
       });
 
     // Fetch wallet balance
-    fetch("http://localhost:5000/api/wallet")
+    fetch(`${API_URL}/api/wallet`)
       .then(res => res.json())
       .then(data => setWalletBalance(data.balance))
       .catch(err => console.error("Error fetching wallet balance:", err));
@@ -131,7 +132,7 @@ export default function PassengerDashboard() {
     if (!selectedRideToTrack || selectedRideToTrack.status !== "Confirmed") return;
     
     // Connect to Backend Socket.io Server
-    const socket = io("http://localhost:5000");
+    const socket = io(API_URL);
 
     const bookingId = selectedRideToTrack.id;
     const role = "passenger";
@@ -256,7 +257,7 @@ export default function PassengerDashboard() {
   const sharedRidesJoined = bookings.filter(b => b.status === "Completed" || b.status === "Confirmed").length;
 
   const handleCancelBooking = (bookingId) => {
-    fetch(`http://localhost:5000/api/bookings/${bookingId}/cancel`, {
+    fetch(`${API_URL}/api/bookings/${bookingId}/cancel`, {
       method: "POST"
     })
       .then(res => res.json())
@@ -292,7 +293,7 @@ export default function PassengerDashboard() {
     e.preventDefault();
     const amt = parseFloat(addWalletAmount);
     if (!isNaN(amt) && amt > 0) {
-      fetch("http://localhost:5000/api/wallet/topup", {
+      fetch(`${API_URL}/api/wallet/topup`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ amount: amt })
@@ -320,7 +321,7 @@ export default function PassengerDashboard() {
   const handleSubmitReview = (e) => {
     e.preventDefault();
     if (reviewText.trim()) {
-      fetch("http://localhost:5000/api/reviews", {
+      fetch(`${API_URL}/api/reviews`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

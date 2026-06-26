@@ -12,6 +12,7 @@ import {
 import { useUser, UserButton } from "@clerk/nextjs";
 import { io } from "socket.io-client";
 import dynamic from "next/dynamic";
+import { API_URL } from "@/config";
 
 const MapComponent = dynamic(() => import("@/components/Map"), {
   ssr: false,
@@ -120,7 +121,7 @@ export default function DriverDashboard() {
 
   // Connect to Socket.io and join driver room
   useEffect(() => {
-    socketRef.current = io("http://localhost:5000");
+    socketRef.current = io(API_URL);
 
     socketRef.current.on("connect", () => {
       console.log(`Driver socket connected: ${socketRef.current.id}. Registering room driver:${driverName}`);
@@ -151,7 +152,7 @@ export default function DriverDashboard() {
   // Fetch pending requests from backend for this driver on load
   useEffect(() => {
     if (driverName) {
-      fetch(`http://localhost:5000/api/bookings/driver/${encodeURIComponent(driverName)}`)
+      fetch(`${API_URL}/api/bookings/driver/${encodeURIComponent(driverName)}`)
         .then(res => res.json())
         .then(data => {
           if (data && data.length > 0) {
@@ -205,7 +206,7 @@ export default function DriverDashboard() {
   // Check active trip on load
   useEffect(() => {
     if (driverName) {
-      fetch("http://localhost:5000/api/bookings")
+      fetch(`${API_URL}/api/bookings`)
         .then(res => res.json())
         .then(data => {
           const active = data.find(b => b.driverName === driverName && (b.bookingStatus === "Confirmed" || b.bookingStatus === "Accepted" || b.bookingStatus === "Arriving" || b.bookingStatus === "Started"));
@@ -238,7 +239,7 @@ export default function DriverDashboard() {
     if (!activeTrip) return;
 
     // Connect to Backend Socket.io Server
-    const socket = io("http://localhost:5000");
+    const socket = io(API_URL);
 
     const bookingId = activeTrip.id;
     const role = "driver";
@@ -392,7 +393,7 @@ export default function DriverDashboard() {
       verified: true
     };
 
-    fetch("http://localhost:5000/api/rides", {
+    fetch(`${API_URL}/api/rides`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(ridePayload)
@@ -431,7 +432,7 @@ export default function DriverDashboard() {
     }
 
     // Update backend booking to Confirmed
-    fetch(`http://localhost:5000/api/bookings/${request.id}/accept`, {
+    fetch(`${API_URL}/api/bookings/${request.id}/accept`, {
       method: "POST"
     })
       .then(res => res.json())

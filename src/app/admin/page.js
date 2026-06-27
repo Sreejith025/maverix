@@ -10,6 +10,7 @@ import {
   CheckCircle2, HelpCircle, UserCheck, ShieldCheck, Zap
 } from "lucide-react";
 import { useUser, UserButton } from "@clerk/nextjs";
+import { API_URL } from "@/config";
 
 export default function AdminDashboard() {
   const router = useRouter();
@@ -48,32 +49,98 @@ export default function AdminDashboard() {
   const [toastMessage, setToastMessage] = useState("");
   const [toastType, setToastType] = useState("success"); // 'success' | 'error' | 'info'
 
-  // Mock Users State
-  const [usersList, setUsersList] = useState([
-    { id: 101, name: "Karthik Raja", email: "karthik.raja@email.com", trips: 42, status: "Active", joinDate: "2026-04-12" },
-    { id: 102, name: "Aditi Sharma", email: "aditi.sharma@email.com", trips: 28, status: "Active", joinDate: "2026-05-01" },
-    { id: 103, name: "Suresh Pillai", email: "suresh.p@email.com", trips: 3, status: "Suspended", joinDate: "2026-06-10" },
-    { id: 104, name: "Meera Nair", email: "meera.nair@email.com", trips: 15, status: "Active", joinDate: "2026-06-15" }
-  ]);
+  // Users State
+  const [usersList, setUsersList] = useState([]);
 
-  // Mock Verification Requests State
-  const [verificationRequests, setVerificationRequests] = useState([
-    { id: 1, name: "Balaji Swaminathan", vehicle: "Maruti Swift Dzire", plate: "TN-37-CZ-9988", phone: "+91 98456 21230", date: "2026-06-21", status: "Pending" },
-    { id: 2, name: "Divya Krishnan", vehicle: "Hyundai Xcent", plate: "TN-66-AB-4455", phone: "+91 94432 09871", date: "2026-06-22", status: "Pending" },
-    { id: 3, name: "Ramesh Babu", vehicle: "Toyota Innova Crysta", plate: "TN-38-EF-1122", phone: "+91 97789 65432", date: "2026-06-22", status: "Pending" }
-  ]);
+  // Verification Requests State
+  const [verificationRequests, setVerificationRequests] = useState([]);
 
-  // Mock Active Trips State
-  const [activeTrips, setActiveTrips] = useState([
-    { id: 301, driver: "Rajesh Kumar", passenger: "Aditi Sharma + 1", route: "Coimbatore Junction → Pollachi", status: "In Transit", startTime: "20:00", vehicle: "Swift Dzire" },
-    { id: 302, driver: "Vikram Rathore", passenger: "Karthik Raja", route: "Coimbatore Airport → Palakkad", status: "Matching", startTime: "20:15", vehicle: "Honda Amaze" },
-    { id: 303, driver: "Anand Selvan", passenger: "Meera Nair", route: "Gandhipuram → Tiruppur", status: "In Transit", startTime: "19:45", vehicle: "Toyota Innova" }
-  ]);
+  // Active Trips State
+  const [activeTrips, setActiveTrips] = useState([]);
 
   // Stats Counters
-  const [totalUsersCount, setTotalUsersCount] = useState(45280);
-  const [totalDriversCount, setTotalDriversCount] = useState(12840);
-  const [revenueSum, setRevenueSum] = useState(1842500);
+  const [totalUsersCount, setTotalUsersCount] = useState(0);
+  const [totalDriversCount, setTotalDriversCount] = useState(0);
+  const [revenueSum, setRevenueSum] = useState(0);
+
+  // Fetch backend data dynamically
+  useEffect(() => {
+    // 1. Fetch Users
+    fetch(`${API_URL}/api/users`)
+      .then(res => res.json())
+      .then(data => {
+        if (data && Array.isArray(data)) {
+          const formattedUsers = data.map((u, index) => ({
+            id: u.userId || index,
+            name: u.name || "Unknown User",
+            email: u.email || "No email",
+            trips: Number(u.trips) || 0,
+            status: u.status || "Active",
+            joinDate: u.lastUpdated ? u.lastUpdated.split("T")[0] : new Date().toISOString().split("T")[0]
+          }));
+          setUsersList(formattedUsers);
+          setTotalUsersCount(formattedUsers.length);
+        }
+      })
+      .catch(err => console.error("Error loading users for admin:", err));
+
+    // 2. Fetch Verification Requests (unverified rides)
+    fetch(`${API_URL}/api/admin/verification-requests`)
+      .then(res => res.json())
+      .then(data => {
+        if (data && Array.isArray(data)) {
+          const formattedReqs = data.map(r => ({
+            id: r.id,
+            name: r.driverName,
+            vehicle: r.vehicleType,
+            plate: r.vehicleNumber,
+            phone: r.phone || "+91 99999 99999",
+            date: new Date().toISOString().split("T")[0],
+            status: "Pending"
+          }));
+          setVerificationRequests(formattedReqs);
+        }
+      })
+      .catch(err => console.error("Error loading verification requests:", err));
+
+    // 3. Fetch Bookings for active trips & revenue stats
+    fetch(`${API_URL}/api/bookings`)
+      .then(res => res.json())
+      .then(data => {
+        if (data && Array.isArray(data)) {
+          // Filter active trips: status is confirmed/started/accepted/arriving
+          const active = data.filter(b => ["Confirmed", "Accepted", "Arriving", "Started"].includes(b.status || b.bookingStatus));
+          const formattedActive = active.map(b => ({
+            id: b.id,
+            driver: b.driverName,
+            passenger: b.passengerName,
+            route: `${b.pickup.split(",")[0]} → ${b.destination.split(",")[0]}`,
+            status: b.status || b.bookingStatus || "Matching",
+            startTime: b.date || "Just Now",
+            vehicle: b.vehicleType
+          }));
+          setActiveTrips(formattedActive);
+
+          // Calculate revenue from completed bookings
+          const completed = data.filter(b => b.status === "Completed" || b.bookingStatus === "Completed");
+          const totalRev = completed.reduce((sum, b) => sum + (Number(b.fare) || 0), 0);
+          setRevenueSum(totalRev);
+        }
+      })
+      .catch(err => console.error("Error loading bookings for admin stats:", err));
+
+    // 4. Fetch all Rides to get drivers count
+    fetch(`${API_URL}/api/rides`)
+      .then(res => res.json())
+      .then(data => {
+        if (data && Array.isArray(data)) {
+          // Count verified drivers
+          const verifiedDrivers = data.filter(r => r.verified);
+          setTotalDriversCount(verifiedDrivers.length);
+        }
+      })
+      .catch(err => console.error("Error loading rides for admin driver count:", err));
+  }, []);
 
   const triggerToast = (msg, type = "success") => {
     setToastMessage(msg);
@@ -600,42 +667,50 @@ export default function AdminDashboard() {
                   </div>
 
                   <div className="space-y-4 max-h-[300px] overflow-y-auto pr-1">
-                    {activeTrips.map((trip) => (
-                      <div key={trip.id} className="bg-slate-50 p-4 rounded-2xl border border-slate-100 text-xs space-y-3 relative overflow-hidden">
-                        <div className="absolute top-0 right-0 bg-blue-600/10 text-brand-blue-600 text-[8px] font-extrabold px-2 py-0.5 rounded-bl">
-                          ID: #{trip.id}
-                        </div>
-                        <div className="space-y-1">
-                          <span className="text-[9px] font-extrabold uppercase tracking-wide text-slate-400">Route & Transit</span>
-                          <div className="flex items-center gap-1.5 font-bold text-slate-800">
-                            <span>{trip.route.split("→")[0]}</span>
-                            <ArrowRight className="w-3.5 h-3.5 text-slate-400" />
-                            <span>{trip.route.split("→")[1]}</span>
+                    {activeTrips.length > 0 ? (
+                      activeTrips.map((trip) => (
+                        <div key={trip.id} className="bg-slate-50 p-4 rounded-2xl border border-slate-100 text-xs space-y-3 relative overflow-hidden">
+                          <div className="absolute top-0 right-0 bg-blue-600/10 text-brand-blue-600 text-[8px] font-extrabold px-2 py-0.5 rounded-bl">
+                            ID: #{trip.id}
+                          </div>
+                          <div className="space-y-1">
+                            <span className="text-[9px] font-extrabold uppercase tracking-wide text-slate-400">Route & Transit</span>
+                            <div className="flex items-center gap-1.5 font-bold text-slate-800">
+                              <span>{trip.route.split("→")[0]}</span>
+                              <ArrowRight className="w-3.5 h-3.5 text-slate-400" />
+                              <span>{trip.route.split("→")[1]}</span>
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 text-[10px] text-slate-500 font-semibold border-t border-slate-200/50 pt-2">
+                            <div>Driver: <strong className="text-slate-800">{trip.driver}</strong></div>
+                            <div>Rider: <strong className="text-slate-800">{trip.passenger}</strong></div>
+                          </div>
+                          <div className="border-t border-slate-200/50 pt-2.5 flex justify-between items-center">
+                            <span className="text-[9px] font-extrabold text-slate-400 uppercase">Started: {trip.startTime}</span>
+                            <div className="flex gap-2">
+                              <button 
+                                onClick={() => handleForceCompleteTrip(trip.id, trip.driver)}
+                                className="text-[10px] font-extrabold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 px-2 py-1 rounded transition-colors cursor-pointer"
+                              >
+                                Complete
+                              </button>
+                              <button 
+                                onClick={() => handleCancelTrip(trip.id, trip.driver)}
+                                className="text-[10px] font-extrabold bg-rose-50 hover:bg-rose-100 text-rose-700 px-2 py-1 rounded transition-colors cursor-pointer"
+                              >
+                                Cancel
+                              </button>
+                            </div>
                           </div>
                         </div>
-                        <div className="grid grid-cols-2 gap-2 text-[10px] text-slate-500 font-semibold border-t border-slate-200/50 pt-2">
-                          <div>Driver: <strong className="text-slate-800">{trip.driver}</strong></div>
-                          <div>Rider: <strong className="text-slate-800">{trip.passenger}</strong></div>
-                        </div>
-                        <div className="border-t border-slate-200/50 pt-2.5 flex justify-between items-center">
-                          <span className="text-[9px] font-extrabold text-slate-400 uppercase">Started: {trip.startTime}</span>
-                          <div className="flex gap-2">
-                            <button 
-                              onClick={() => handleForceCompleteTrip(trip.id, trip.driver)}
-                              className="text-[10px] font-extrabold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 px-2 py-1 rounded transition-colors cursor-pointer"
-                            >
-                              Complete
-                            </button>
-                            <button 
-                              onClick={() => handleCancelTrip(trip.id, trip.driver)}
-                              className="text-[10px] font-extrabold bg-rose-50 hover:bg-rose-100 text-rose-700 px-2 py-1 rounded transition-colors cursor-pointer"
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                        </div>
+                      ))
+                    ) : (
+                      <div className="p-8 text-center bg-slate-50 rounded-2xl border border-slate-100 space-y-2">
+                        <Activity className="w-8 h-8 text-slate-300 mx-auto" />
+                        <h4 className="font-bold text-slate-800 text-xs">No active trips</h4>
+                        <p className="text-[10px] text-slate-400">There are no trips currently in transit.</p>
                       </div>
-                    ))}
+                    )}
                   </div>
                 </div>
 

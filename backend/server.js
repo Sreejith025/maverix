@@ -199,6 +199,26 @@ app.get("/api/reviews", async (req, res) => {
     }
 });
 
+// GET users for admin
+app.get("/api/users", async (req, res) => {
+    try {
+        const users = await datastore.getUsers();
+        res.json(users);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET unverified drivers for admin verification requests
+app.get("/api/admin/verification-requests", async (req, res) => {
+    try {
+        const unverified = await datastore.getUnverifiedDrivers();
+        res.json(unverified);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // POST review
 app.post("/api/reviews", async (req, res) => {
     const { driverName, rating, reviewText } = req.body;

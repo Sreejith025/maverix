@@ -82,221 +82,33 @@ async function seedDatabase() {
         await ensureTableExists("Wallet", "userId", "S");
         await ensureTableExists("Reviews", "reviewId", "S");
 
-        // Seed Users table
-        const userCheck = await docClient.send(new ScanCommand({ TableName: "Users", Limit: 1 }));
-        if (!userCheck.Items || userCheck.Items.length === 0) {
-            console.log("Seeding Users table...");
-            const initialUsers = [
-                {
-                    userId: "rajesh_kumar",
-                    name: "Rajesh Kumar",
-                    email: "rajesh.k@routemate.com",
-                    role: "driver",
-                    currentLatitude: 11.0168,
-                    currentLongitude: 76.9558,
-                    lastUpdated: new Date().toISOString()
-                },
-                {
-                    userId: "anand_selvan",
-                    name: "Anand Selvan",
-                    email: "anand.s@routemate.com",
-                    role: "driver",
-                    currentLatitude: 10.9754,
-                    currentLongitude: 76.9612,
-                    lastUpdated: new Date().toISOString()
-                },
-                {
-                    userId: "priya_murugan",
-                    name: "Priya Murugan",
-                    email: "priya.m@routemate.com",
-                    role: "driver",
-                    currentLatitude: 10.6589,
-                    currentLongitude: 77.0072,
-                    lastUpdated: new Date().toISOString()
-                },
-                {
-                    userId: "guest_passenger",
-                    name: "Guest Passenger",
-                    email: "passenger@routemate.com",
-                    role: "passenger",
-                    currentLatitude: 11.0168,
-                    currentLongitude: 76.9558,
-                    lastUpdated: new Date().toISOString()
-                }
-            ];
-            for (const user of initialUsers) {
-                await docClient.send(new PutCommand({ TableName: "Users", Item: user }));
+        // Clear existing Rides
+        const scanRides = await docClient.send(new ScanCommand({ TableName: "Rides" }));
+        if (scanRides.Items && scanRides.Items.length > 0) {
+            const { DeleteCommand } = require("@aws-sdk/lib-dynamodb");
+            for (const r of scanRides.Items) {
+                await docClient.send(new DeleteCommand({ TableName: "Rides", Key: { rideId: r.rideId } }));
             }
-            console.log("Users table seeded.");
+            console.log("Cleared existing rides.");
         }
 
-        const rideCheck = await docClient.send(new ScanCommand({ TableName: "Rides", Limit: 1 }));
-        if (!rideCheck.Items || rideCheck.Items.length === 0) {
-            console.log("Seeding Rides table...");
-            const initialRides = [
-                {
-                    rideId: "1",
-                    driverId: "rajesh_kumar",
-                    passengerId: "",
-                    rideStatus: "Searching",
-                    driverName: "Rajesh Kumar",
-                    driverImage: "https://images.unsplash.com/photo-1540569014015-19a7be504e3a?auto=format&fit=crop&w=120&h=120&q=80",
-                    driverRating: 4.8,
-                    driverTrips: 342,
-                    vehicleType: "Swift Dzire (Sedan)",
-                    vehicleNumber: "TN-37-BY-1234",
-                    currentLocation: "Coimbatore Junction",
-                    destination: "Pollachi Bus Stand",
-                    availableSeats: 3,
-                    passengersOnboard: 1,
-                    etaMins: 40,
-                    fare: 180,
-                    verified: true
-                },
-                {
-                    rideId: "2",
-                    driverId: "anand_selvan",
-                    passengerId: "",
-                    rideStatus: "Searching",
-                    driverName: "Anand Selvan",
-                    driverImage: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=120&h=120&q=80",
-                    driverRating: 4.9,
-                    driverTrips: 512,
-                    vehicleType: "Toyota Innova (SUV)",
-                    vehicleNumber: "TN-38-EF-5678",
-                    currentLocation: "Gandhipuram Bus Stand",
-                    destination: "Tiruppur Old Bus Stand",
-                    availableSeats: 4,
-                    passengersOnboard: 3,
-                    etaMins: 55,
-                    fare: 210,
-                    verified: true
-                },
-                {
-                    rideId: "3",
-                    driverId: "priya_murugan",
-                    passengerId: "",
-                    rideStatus: "Searching",
-                    driverName: "Priya Murugan",
-                    driverImage: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=120&h=120&q=80",
-                    driverRating: 4.7,
-                    driverTrips: 189,
-                    vehicleType: "Hyundai i20 (Hatchback)",
-                    vehicleNumber: "TN-66-AA-9012",
-                    currentLocation: "Pollachi Town Hall",
-                    destination: "Udumalpet Bus Depot",
-                    availableSeats: 2,
-                    passengersOnboard: 2,
-                    etaMins: 25,
-                    fare: 120,
-                    verified: true
-                },
-                {
-                    rideId: "4",
-                    driverId: "vikram_rathore",
-                    passengerId: "",
-                    rideStatus: "Searching",
-                    driverName: "Vikram Rathore",
-                    driverImage: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=120&h=120&q=80",
-                    driverRating: 4.6,
-                    driverTrips: 98,
-                    vehicleType: "Honda Amaze (Sedan)",
-                    vehicleNumber: "TN-37-CZ-3456",
-                    currentLocation: "Coimbatore Airport",
-                    destination: "Palakkad Town Junction",
-                    availableSeats: 3,
-                    passengersOnboard: 1,
-                    etaMins: 70,
-                    fare: 250,
-                    verified: false
-                },
-                {
-                    rideId: "5",
-                    driverId: "senthil_kumar",
-                    passengerId: "",
-                    rideStatus: "Searching",
-                    driverName: "Senthil Kumar",
-                    driverImage: "https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?auto=format&fit=crop&w=120&h=120&q=80",
-                    driverRating: 4.9,
-                    driverTrips: 420,
-                    vehicleType: "Maruti Ertiga (SUV)",
-                    vehicleNumber: "TN-38-KL-7890",
-                    currentLocation: "Singanallur Junction",
-                    destination: "Pollachi Central Market",
-                    availableSeats: 5,
-                    passengersOnboard: 2,
-                    etaMins: 45,
-                    fare: 190,
-                    verified: true
-                }
-            ];
-            for (const ride of initialRides) {
-                await docClient.send(new PutCommand({ TableName: "Rides", Item: ride }));
+        // Clear existing Bookings
+        const scanBookings = await docClient.send(new ScanCommand({ TableName: "Bookings" }));
+        if (scanBookings.Items && scanBookings.Items.length > 0) {
+            const { DeleteCommand } = require("@aws-sdk/lib-dynamodb");
+            for (const b of scanBookings.Items) {
+                await docClient.send(new DeleteCommand({ TableName: "Bookings", Key: { bookingId: b.bookingId } }));
             }
-            console.log("Database seeded with initial rides.");
+            console.log("Cleared existing bookings.");
         }
 
-        const bookingCheck = await docClient.send(new ScanCommand({ TableName: "Bookings", Limit: 1 }));
-        if (!bookingCheck.Items || bookingCheck.Items.length === 0) {
-            console.log("Seeding Bookings table...");
-            const initialBookings = [
-                {
-                    bookingId: "201",
-                    rideId: "1",
-                    passengerId: "guest_passenger",
-                    bookingStatus: "Confirmed",
-                    status: "Confirmed",
-                    driverName: "Rajesh Kumar",
-                    vehicleType: "Swift Dzire (Sedan)",
-                    vehicleNumber: "TN-37-BY-1234",
-                    pickup: "Coimbatore Junction",
-                    destination: "Pollachi Bus Stand",
-                    date: new Date().toISOString().split("T")[0],
-                    passengers: 2,
-                    fare: 360,
-                    etaMins: 25,
-                    currentLocation: "Eachanari Bypass Road"
-                },
-                {
-                    bookingId: "202",
-                    rideId: "2",
-                    passengerId: "guest_passenger",
-                    bookingStatus: "Completed",
-                    status: "Completed",
-                    driverName: "Anand Selvan",
-                    vehicleType: "Toyota Innova (SUV)",
-                    vehicleNumber: "TN-38-EF-5678",
-                    pickup: "Gandhipuram Bus Stand",
-                    destination: "Tiruppur Old Bus Stand",
-                    date: "2026-06-18",
-                    passengers: 1,
-                    fare: 210,
-                    etaMins: 0,
-                    currentLocation: "Tiruppur Old Bus Stand"
-                },
-                {
-                    bookingId: "203",
-                    rideId: "3",
-                    passengerId: "guest_passenger",
-                    bookingStatus: "Completed",
-                    status: "Completed",
-                    driverName: "Priya Murugan",
-                    vehicleType: "Hyundai i20 (Hatchback)",
-                    vehicleNumber: "TN-66-AA-9012",
-                    pickup: "Pollachi Town Hall",
-                    destination: "Udumalpet Bus Depot",
-                    date: "2026-06-12",
-                    passengers: 2,
-                    fare: 240,
-                    etaMins: 0,
-                    currentLocation: "Udumalpet Bus Depot"
-                }
-            ];
-            for (const booking of initialBookings) {
-                await docClient.send(new PutCommand({ TableName: "Bookings", Item: booking }));
-            }
-            console.log("Database seeded with initial bookings.");
+        // Clear demo users
+        const demoUsers = ["rajesh_kumar", "anand_selvan", "priya_murugan", "guest_passenger"];
+        const { DeleteCommand } = require("@aws-sdk/lib-dynamodb");
+        for (const userId of demoUsers) {
+            await docClient.send(new DeleteCommand({ TableName: "Users", Key: { userId } }));
         }
+        console.log("Cleared demo users.");
 
         const walletCheck = await docClient.send(new GetCommand({ TableName: "Wallet", Key: { userId: "balance" } }));
         if (!walletCheck.Item) {
@@ -454,6 +266,19 @@ const datastore = {
         };
         await docClient.send(new PutCommand({ TableName: "Reviews", Item: item }));
         return { ...item, id: review.id };
+    },
+    getUsers: async () => {
+        const res = await docClient.send(new ScanCommand({ TableName: "Users" }));
+        return res.Items || [];
+    },
+    getUnverifiedDrivers: async () => {
+        const res = await docClient.send(new ScanCommand({
+            TableName: "Rides",
+            FilterExpression: "verified = :v",
+            ExpressionAttributeValues: { ":v": false }
+        }));
+        const items = res.Items || [];
+        return items.map(item => ({ ...item, id: Number(item.rideId) || item.rideId }));
     },
     seedDatabase
 };

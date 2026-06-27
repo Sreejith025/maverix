@@ -682,7 +682,7 @@ export default function Home() {
                 ) : (
                   <div className="bg-slate-50 p-12 rounded-3xl border border-slate-100 text-center space-y-3">
                     <AlertCircle className="w-12 h-12 text-slate-300 mx-auto" />
-                    <h4 className="font-bold text-slate-800">No Rides Found</h4>
+                    <h4 className="font-bold text-slate-800">No rides found</h4>
                     <p className="text-xs text-slate-400 max-w-sm mx-auto">We couldn't find matches. Try changing parameters.</p>
                   </div>
                 )}

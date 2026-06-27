@@ -49,11 +49,7 @@ export default function PassengerDashboard() {
   const [activeModal, setActiveModal] = useState(null); // 'history' | 'wallet' | 'reviews' | 'search'
   
   // Notification items state
-  const [notifications, setNotifications] = useState([
-    { id: 1, title: "Ride Confirmed", message: "Your shared taxi with Rajesh Kumar is confirmed for today.", time: "10 mins ago", read: false },
-    { id: 2, title: "Wallet Auto-Recharged", message: "Successfully added ₹500 from default payment method.", time: "2 hours ago", read: false },
-    { id: 3, title: "Driver Verification Update", message: "RouteMate verified 14 new drivers along your favorite route.", time: "1 day ago", read: true }
-  ]);
+  const [notifications, setNotifications] = useState([]);
 
   // Wallet Simulator State
   const [walletBalance, setWalletBalance] = useState(1450);

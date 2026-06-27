@@ -542,7 +542,7 @@ function FindRideContent() {
                   <Search className="w-8 h-8" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-bold text-slate-900">No Shared Rides Found</h3>
+                  <h3 className="text-lg font-bold text-slate-900">No rides found</h3>
                   <p className="text-sm text-slate-500 font-medium max-w-sm mx-auto mt-1">
                     We couldn't find taxi routes from "{pickup || "Coimbatore"}" to "{destination || "Pollachi"}". Try clearing filters or searching for neighboring towns.
                   </p>

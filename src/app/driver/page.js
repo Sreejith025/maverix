@@ -50,56 +50,16 @@ export default function DriverDashboard() {
   const [isOnline, setIsOnline] = useState(true);
 
   // Driver states (interactive!)
-  const [todaysEarnings, setTodaysEarnings] = useState(1850);
-  const [activePassengers, setActivePassengers] = useState(2);
+  const [todaysEarnings, setTodaysEarnings] = useState(0);
+  const [activePassengers, setActivePassengers] = useState(0);
   const [availableSeats, setAvailableSeats] = useState(4);
-  const [completedTripsCount, setCompletedTripsCount] = useState(14);
+  const [completedTripsCount, setCompletedTripsCount] = useState(0);
   
   // Recent trips state
-  const [recentTrips, setRecentTrips] = useState([
-    { id: 1, route: "Coimbatore Junction → Pollachi", date: "Today, 10:30 AM", passengers: 2, earnings: 360, status: "Completed" },
-    { id: 2, route: "Singanallur → Pollachi Bus Stand", date: "Today, 08:15 AM", passengers: 3, earnings: 570, status: "Completed" },
-    { id: 3, route: "Pollachi Bus Stand → Udumalpet", date: "Yesterday, 06:40 PM", passengers: 1, earnings: 120, status: "Completed" },
-    { id: 4, route: "Coimbatore Airport → Tiruppur", date: "Yesterday, 02:15 PM", passengers: 2, earnings: 420, status: "Completed" },
-    { id: 5, route: "Gandhipuram → Palakkad", date: "20 Jun 2026", passengers: 3, earnings: 750, status: "Completed" },
-  ]);
+  const [recentTrips, setRecentTrips] = useState([]);
 
   // Incoming passenger requests state
-  const [rideRequests, setRideRequests] = useState([
-    {
-      id: 101,
-      passengerName: "Karthik Raja",
-      passengerImage: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=120&h=120&q=80",
-      pickupPoint: "Hope College, Coimbatore",
-      destination: "Pollachi Bus Stand",
-      passengerRating: 4.9,
-      passengersCount: 2,
-      estimatedFare: 360,
-      etaMins: 8
-    },
-    {
-      id: 102,
-      passengerName: "Nisha Dev",
-      passengerImage: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=120&h=120&q=80",
-      pickupPoint: "PSG Tech, Coimbatore",
-      destination: "Tiruppur Bus Depot",
-      passengerRating: 4.8,
-      passengersCount: 1,
-      estimatedFare: 210,
-      etaMins: 12
-    },
-    {
-      id: 103,
-      passengerName: "Rohan Das",
-      passengerImage: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=120&h=120&q=80",
-      pickupPoint: "Udumalpet Bypass",
-      destination: "Pollachi Town Hall",
-      passengerRating: 4.6,
-      passengersCount: 2,
-      estimatedFare: 240,
-      etaMins: 15
-    }
-  ]);
+  const [rideRequests, setRideRequests] = useState([]);
 
   // Alerts
   const [alertMessage, setAlertMessage] = useState(null);
@@ -149,15 +109,40 @@ export default function DriverDashboard() {
     };
   }, [driverName]);
 
-  // Fetch pending requests from backend for this driver on load
+  // Fetch active trip, requests, completed trips, and stats dynamically from backend
   useEffect(() => {
     if (driverName) {
-      fetch(`${API_URL}/api/bookings/driver/${encodeURIComponent(driverName)}`)
+      fetch(`${API_URL}/api/bookings`)
         .then(res => res.json())
         .then(data => {
-          if (data && data.length > 0) {
-            console.log("Loaded pending bookings for driver:", data);
-            const backendRequests = data.map(b => ({
+          if (data && Array.isArray(data)) {
+            // 1. Find active trip
+            const active = data.find(b => b.driverName === driverName && ["Confirmed", "Accepted", "Arriving", "Started"].includes(b.status || b.bookingStatus));
+            if (active) {
+              console.log("Found active trip for driver on load:", active);
+              const trip = {
+                id: active.id,
+                rideId: active.rideId,
+                route: `${active.pickup.split(",")[0]} → ${active.destination.split(",")[0]}`,
+                date: active.date || "Just Now",
+                passengers: active.passengers,
+                earnings: active.fare,
+                status: "Active",
+                pickup: active.pickup,
+                destination: active.destination,
+                passengerName: active.passengerName,
+                passengerImage: active.passengerImage,
+                passengerRating: active.passengerRating
+              };
+              setActiveTrip(trip);
+              setRideStatus(active.bookingStatus || "Accepted");
+            } else {
+              setActiveTrip(null);
+            }
+
+            // 2. Find pending requests for this driver
+            const pending = data.filter(b => b.driverName === driverName && (b.status === "Pending" || b.bookingStatus === "Pending"));
+            const backendRequests = pending.map(b => ({
               id: b.id,
               rideId: b.rideId,
               passengerName: b.passengerName || "Guest Passenger",
@@ -170,11 +155,35 @@ export default function DriverDashboard() {
               etaMins: b.etaMins || 10
             }));
             setRideRequests(backendRequests);
+
+            // 3. Find completed trips for this driver
+            const completed = data.filter(b => b.driverName === driverName && (b.status === "Completed" || b.bookingStatus === "Completed"));
+            const formattedTrips = completed.map(b => ({
+              id: b.id,
+              route: `${b.pickup.split(",")[0]} → ${b.destination.split(",")[0]}`,
+              date: b.date || "Just Now",
+              passengers: b.passengers,
+              earnings: b.fare,
+              status: "Completed"
+            }));
+            setRecentTrips(formattedTrips);
+
+            // 4. Calculate stats dynamically
+            const todayStr = new Date().toISOString().split("T")[0];
+            const earnings = completed
+              .filter(b => b.date === todayStr)
+              .reduce((sum, b) => sum + (Number(b.fare) || 0), 0);
+            setTodaysEarnings(earnings);
+
+            const activePassengerCount = active ? (Number(active.passengers) || 0) : 0;
+            setActivePassengers(activePassengerCount);
+
+            setCompletedTripsCount(completed.length);
           }
         })
-        .catch(err => console.error("Error loading pending driver requests:", err));
+        .catch(err => console.error("Error loading driver dashboard data:", err));
     }
-  }, [driverName]);
+  }, [driverName, activeTrip?.status, activeTrip?.id]);
 
   // Helper to calculate Haversine distance
   const getHaversineDistance = (coords1, coords2) => {
@@ -202,37 +211,6 @@ export default function DriverDashboard() {
     if (n.includes("udumalpet")) return [10.5855, 77.2433];
     return def;
   };
-
-  // Check active trip on load
-  useEffect(() => {
-    if (driverName) {
-      fetch(`${API_URL}/api/bookings`)
-        .then(res => res.json())
-        .then(data => {
-          const active = data.find(b => b.driverName === driverName && (b.bookingStatus === "Confirmed" || b.bookingStatus === "Accepted" || b.bookingStatus === "Arriving" || b.bookingStatus === "Started"));
-          if (active) {
-            console.log("Found active trip for driver on load:", active);
-            const trip = {
-              id: active.id,
-              rideId: active.rideId,
-              route: `${active.pickup.split(",")[0]} → ${active.destination.split(",")[0]}`,
-              date: active.date || "Just Now",
-              passengers: active.passengers,
-              earnings: active.fare,
-              status: "Active",
-              pickup: active.pickup,
-              destination: active.destination,
-              passengerName: active.passengerName,
-              passengerImage: active.passengerImage,
-              passengerRating: active.passengerRating
-            };
-            setActiveTrip(trip);
-            setRideStatus(active.bookingStatus || "Accepted");
-          }
-        })
-        .catch(err => console.error("Error loading active driver trip:", err));
-    }
-  }, [driverName]);
 
   // WebSockets (Socket.io) real-time coordinate updates for selected active trip (Driver side)
   useEffect(() => {
@@ -523,24 +501,7 @@ export default function DriverDashboard() {
     }
   };
 
-  // Reset demo states
-  const handleResetDemo = () => {
-    setTodaysEarnings(1850);
-    setActivePassengers(2);
-    setAvailableSeats(4);
-    setCompletedTripsCount(14);
-    setRecentTrips([
-      { id: 1, route: "Coimbatore Junction → Pollachi", date: "Today, 10:30 AM", passengers: 2, earnings: 360, status: "Completed" },
-      { id: 2, route: "Singanallur → Pollachi Bus Stand", date: "Today, 08:15 AM", passengers: 3, earnings: 570, status: "Completed" },
-      { id: 3, route: "Pollachi Bus Stand → Udumalpet", date: "Yesterday, 06:40 PM", passengers: 1, earnings: 120, status: "Completed" },
-      { id: 4, route: "Coimbatore Airport → Tiruppur", date: "Yesterday, 02:15 PM", passengers: 2, earnings: 420, status: "Completed" },
-    ]);
-    setRideRequests([
-      { id: 101, passengerName: "Karthik Raja", passengerImage: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=120&h=120&q=80", pickupPoint: "Hope College, Coimbatore", destination: "Pollachi Bus Stand", passengerRating: 4.9, passengersCount: 2, estimatedFare: 360, etaMins: 8 },
-      { id: 102, passengerName: "Nisha Dev", passengerImage: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=120&h=120&q=80", pickupPoint: "PSG Tech, Coimbatore", destination: "Tiruppur Bus Depot", passengerRating: 4.8, passengersCount: 1, estimatedFare: 210, etaMins: 12 },
-      { id: 103, passengerName: "Rohan Das", passengerImage: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=120&h=120&q=80", pickupPoint: "Udumalpet Bypass", destination: "Pollachi Town Hall", passengerRating: 4.6, passengersCount: 2, estimatedFare: 240, etaMins: 15 }
-    ]);
-  };
+
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row antialiased">
@@ -622,7 +583,6 @@ export default function DriverDashboard() {
         <div className="space-y-4">
           <div className="text-xs font-semibold text-slate-500 flex justify-between items-center">
             <span>DRIVER PORTAL v1.1</span>
-            <button onClick={handleResetDemo} className="text-brand-blue-500 hover:underline">Reset Demo</button>
           </div>
           <Link 
             href="/"
@@ -977,7 +937,7 @@ export default function DriverDashboard() {
                       ) : (
                         <div className="p-8 bg-slate-50 rounded-2xl border border-slate-100 text-center space-y-3">
                           <CheckCircle2 className="w-10 h-10 text-brand-green-500 mx-auto" />
-                          <h4 className="font-bold text-slate-800 text-sm">All Requests Handled</h4>
+                          <h4 className="font-bold text-slate-800 text-sm">No requests available</h4>
                           <p className="text-xs text-slate-400 font-medium leading-relaxed">
                             No pending ride sharing requests. Toggle online status to keep looking for passenger matches.
                           </p>

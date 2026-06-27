@@ -133,6 +133,13 @@ const datastore = {
         const items = res.Items || [];
         return items.map(item => ({ ...item, id: Number(item.rideId) || item.rideId })).sort((a, b) => a.id - b.id);
     },
+    getRide: async (rideId) => {
+        const res = await docClient.send(new GetCommand({
+            TableName: "Rides",
+            Key: { rideId: String(rideId) }
+        }));
+        return res.Item;
+    },
     addRide: async (ride) => {
         // Clean up any existing older rides for this driver name to prevent duplicate entries
         try {
@@ -371,7 +378,53 @@ const datastore = {
             TableName: "Users",
             Key: { userId: String(userId) }
         }));
-        return res.Item;
+        if (res.Item) {
+            return res.Item;
+        }
+        // Auto-create a default user record in DynamoDB if not found, so it can be queried/updated
+        const defaultUser = {
+            userId: String(userId),
+            role: "passenger",
+            verified: false,
+            gender: "Not Specified",
+            createdAt: new Date().toISOString()
+        };
+        await docClient.send(new PutCommand({
+            TableName: "Users",
+            Item: defaultUser
+        }));
+        return defaultUser;
+    },
+    updateUser: async (userId, data) => {
+        const updateExpressionParts = [];
+        const expressionAttributeValues = {};
+        const expressionAttributeNames = {};
+
+        if (data.gender !== undefined) {
+            updateExpressionParts.push("gender = :gender");
+            expressionAttributeValues[":gender"] = data.gender;
+        }
+        if (data.name !== undefined) {
+            updateExpressionParts.push("#n = :name");
+            expressionAttributeValues[":name"] = data.name;
+            expressionAttributeNames["#n"] = "name";
+        }
+        if (data.email !== undefined) {
+            updateExpressionParts.push("email = :email");
+            expressionAttributeValues[":email"] = data.email;
+        }
+
+        if (updateExpressionParts.length === 0) return null;
+
+        const res = await docClient.send(new UpdateCommand({
+            TableName: "Users",
+            Key: { userId: String(userId) },
+            UpdateExpression: "SET " + updateExpressionParts.join(", "),
+            ExpressionAttributeNames: Object.keys(expressionAttributeNames).length > 0 ? expressionAttributeNames : undefined,
+            ExpressionAttributeValues: expressionAttributeValues,
+            ReturnValues: "ALL_NEW"
+        }));
+        return res.Attributes;
     },
     getBooking: async (bookingId) => {
         const res = await docClient.send(new GetCommand({

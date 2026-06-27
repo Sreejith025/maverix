@@ -125,11 +125,28 @@ function isLocationOnRoute(startLocation, endLocation, passengerPickup, passenge
 // GET rides
 app.get("/api/rides", async (req, res) => {
     try {
-        const { pickup, destination } = req.query;
+        const { pickup, destination, womenOnly, passengers } = req.query;
         let rides = await datastore.getRides();
         
         // Filter by ACTIVE/Accepted status
         rides = rides.filter(r => r.rideStatus === "ACTIVE" || r.rideStatus === "Searching" || r.rideStatus === "Accepted");
+
+        // Filter by destination if provided
+        if (destination) {
+            const d = destination.toLowerCase();
+            rides = rides.filter(r => r.destination.toLowerCase().includes(d));
+        }
+
+        // Filter by womenOnly if true
+        if (womenOnly === "true") {
+            rides = rides.filter(r => r.womenOnly === true && r.verified === true);
+        }
+
+        // Filter by available seats capacity if passengers count is requested
+        if (passengers) {
+            const passengerCount = Number(passengers) || 1;
+            rides = rides.filter(r => (r.availableSeats !== undefined ? r.availableSeats : 4) >= passengerCount);
+        }
 
         if (pickup && destination) {
             // Filter by route match
@@ -171,13 +188,33 @@ app.post("/api/bookings", async (req, res) => {
     const { 
         driverName, vehicleType, vehicleNumber, pickup, destination, 
         date, passengers, fare, etaMins, currentLocation,
-        passengerName, passengerImage, passengerRating, status 
+        passengerName, passengerImage, passengerRating, status, rideId 
     } = req.body;
     
     if (!driverName || !pickup || !destination) {
         return res.status(400).json({ error: "Missing required fields" });
     }
     
+    // Security: Validate passenger and Women Only ride restriction on backend
+    let isWomenOnlyRide = false;
+    try {
+        if (rideId) {
+            const rideObj = await datastore.getRide(rideId);
+            if (rideObj) {
+                isWomenOnlyRide = rideObj.womenOnly === true;
+                if (isWomenOnlyRide) {
+                    const passengerId = passengerName ? passengerName.toLowerCase().replace(/ /g, "_") : "guest_passenger";
+                    const passengerObj = await datastore.getUser(passengerId);
+                    if (!passengerObj || passengerObj.gender !== "Female") {
+                        return res.status(400).json({ error: "This ride is reserved for women passengers." });
+                    }
+                }
+            }
+        }
+    } catch (err) {
+        console.error("Booking validation error:", err.message);
+    }
+
     const newBooking = {
         id: Date.now(),
         driverName,
@@ -193,7 +230,9 @@ app.post("/api/bookings", async (req, res) => {
         currentLocation: currentLocation || pickup,
         passengerName: passengerName || "Guest Passenger",
         passengerImage: passengerImage || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=120&h=120&q=80",
-        passengerRating: Number(passengerRating) || 4.8
+        passengerRating: Number(passengerRating) || 4.8,
+        rideId: rideId ? String(rideId) : undefined,
+        womenOnly: isWomenOnlyRide
     };
     
     try {
@@ -209,7 +248,7 @@ app.post("/api/rides", async (req, res) => {
     const { 
         driverName, driverImage, driverRating, driverTrips, 
         vehicleType, vehicleNumber, currentLocation, destination, 
-        availableSeats, fare, etaMins, verified 
+        availableSeats, fare, etaMins, verified, womenOnly 
     } = req.body;
     
     if (!driverName || !currentLocation || !destination || !vehicleType) {
@@ -231,7 +270,8 @@ app.post("/api/rides", async (req, res) => {
         etaMins: Number(etaMins) || 15,
         fare: Number(fare) || 150,
         rideStatus: "ACTIVE", // set Status = ACTIVE
-        verified: verified === undefined ? true : verified
+        verified: verified === undefined ? true : verified,
+        womenOnly: womenOnly === true
     };
     
     try {
@@ -405,6 +445,17 @@ app.get("/api/users/:userId", async (req, res) => {
     }
 });
 
+// POST update user profile details (including gender)
+app.post("/api/users/:userId", async (req, res) => {
+    try {
+        const { gender, name, email } = req.body;
+        const updatedUser = await datastore.updateUser(req.params.userId, { gender, name, email });
+        res.json(updatedUser);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // Compatibility fallback endpoints mapping Users to Drivers
 app.post("/api/users/:userId/verify", async (req, res) => {
     try {
@@ -500,7 +551,8 @@ io.on("connection", (socket) => {
             passengerRating: booking.passengerRating || 4.8,
             passengersCount: booking.passengers,
             estimatedFare: booking.fare,
-            etaMins: booking.etaMins
+            etaMins: booking.etaMins,
+            womenOnly: booking.womenOnly === true
         });
 
         // Simulate auto-acceptance after 3 seconds for mock/seeded drivers

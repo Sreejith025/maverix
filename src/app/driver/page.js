@@ -96,8 +96,18 @@ export default function DriverDashboard() {
     availableSeats: 4,
     fare: 180,
     etaMins: 15,
+    womenOnly: false,
     loading: false
   });
+
+  const [acceptWomenOnlyOnly, setAcceptWomenOnlyOnly] = useState(false);
+
+  const getFilteredRequests = () => {
+    if (acceptWomenOnlyOnly) {
+      return rideRequests.filter(r => r.womenOnly === true);
+    }
+    return rideRequests;
+  };
 
   // Fetch driver registration status from backend
   useEffect(() => {
@@ -178,6 +188,10 @@ export default function DriverDashboard() {
     // Listen for incoming ride requests from passengers
     socketRef.current.on("ride-requested", (newRequest) => {
       console.log("Real-time: Received ride request:", newRequest);
+      if (acceptWomenOnlyOnly && !newRequest.womenOnly) {
+        console.log("Settings 'Accept Women Only Requests' is active. Ignoring general request.");
+        return;
+      }
       setRideRequests(prev => {
         // Avoid duplicate requests
         if (prev.some(r => r.id === newRequest.id)) return prev;
@@ -194,7 +208,7 @@ export default function DriverDashboard() {
         socketRef.current.disconnect();
       }
     };
-  }, [driverName]);
+  }, [driverName, acceptWomenOnlyOnly]);
 
   // Fetch active trip, requests, completed trips, and stats dynamically from backend
   useEffect(() => {
@@ -239,7 +253,8 @@ export default function DriverDashboard() {
               passengerRating: b.passengerRating || 4.8,
               passengersCount: b.passengers,
               estimatedFare: b.fare,
-              etaMins: b.etaMins || 10
+              etaMins: b.etaMins || 10,
+              womenOnly: b.womenOnly === true
             }));
             setRideRequests(backendRequests);
 
@@ -455,7 +470,8 @@ export default function DriverDashboard() {
       availableSeats: rideForm.availableSeats,
       fare: rideForm.fare,
       etaMins: rideForm.etaMins,
-      verified: true
+      verified: true,
+      womenOnly: rideForm.womenOnly
     };
 
     fetch(`${API_URL}/api/rides`, {
@@ -474,6 +490,7 @@ export default function DriverDashboard() {
           availableSeats: 4,
           fare: 180,
           etaMins: 15,
+          womenOnly: false,
           loading: false
         });
         setAlertMessage({ type: "success", text: "Ride Offer created and broadcasted to passenger portal!" });
@@ -918,6 +935,22 @@ export default function DriverDashboard() {
           {/* Action Header controls */}
           <div className="flex items-center gap-6">
             
+            {/* Accept Women Only Toggle */}
+            <div className="flex items-center gap-2.5">
+              <label className="relative inline-flex items-center cursor-pointer select-none">
+                <input 
+                  type="checkbox" 
+                  checked={acceptWomenOnlyOnly}
+                  onChange={(e) => setAcceptWomenOnlyOnly(e.target.checked)}
+                  className="sr-only peer"
+                />
+                <div className="w-10 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+                <span className="ml-2 text-xs font-extrabold text-purple-600 flex items-center gap-1 uppercase tracking-wider hidden sm:inline">
+                  🛡️ Accept Women Only Requests
+                </span>
+              </label>
+            </div>
+
             {/* Online Switch */}
             <div className="flex items-center gap-2.5">
               <span className={`text-xs font-bold ${isOnline ? "text-brand-green-600" : "text-slate-400"}`}>
@@ -1155,14 +1188,14 @@ export default function DriverDashboard() {
                         Incoming Shared Requests
                       </h3>
                       <span className="px-2 py-0.5 rounded-full bg-rose-50 text-rose-600 text-[10px] font-extrabold">
-                        {rideRequests.length} Pending
+                        {getFilteredRequests().length} Pending
                       </span>
                     </div>
 
                     {/* Requests List */}
                     <div className="space-y-4 max-h-[450px] overflow-y-auto pr-1">
-                      {rideRequests.length > 0 ? (
-                        rideRequests.map((req) => (
+                      {getFilteredRequests().length > 0 ? (
+                        getFilteredRequests().map((req) => (
                           <div 
                             key={req.id}
                             className="bg-slate-50 rounded-2xl p-4 border border-slate-100 space-y-3 relative hover:bg-slate-100/50 transition-colors"
@@ -1397,6 +1430,21 @@ export default function DriverDashboard() {
                       className="w-full px-4 py-3 bg-slate-50 border border-slate-200 focus:border-brand-blue-500 focus:ring-1 focus:ring-brand-blue-500/20 rounded-xl text-slate-800 font-semibold text-xs outline-none transition-all"
                     />
                   </div>
+                </div>
+
+                <div className="flex items-center gap-2.5 pt-1 pb-2">
+                  <label className="relative inline-flex items-center cursor-pointer select-none">
+                    <input 
+                      type="checkbox" 
+                      checked={rideForm.womenOnly}
+                      onChange={(e) => setRideForm({...rideForm, womenOnly: e.target.checked})}
+                      className="sr-only peer"
+                    />
+                    <div className="w-10 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+                    <span className="ml-2 text-xs font-extrabold text-purple-600 flex items-center gap-1 uppercase tracking-wider">
+                      🛡️ Women Only Ride
+                    </span>
+                  </label>
                 </div>
 
                 <button 

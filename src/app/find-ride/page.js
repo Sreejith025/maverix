@@ -70,6 +70,41 @@ function FindRideContent() {
 
   // Filters State
   const [selectedFilter, setSelectedFilter] = useState("lowest-price"); // 'lowest-price' | 'nearest' | 'earliest' | 'seats'
+  const [isWomenOnly, setIsWomenOnly] = useState(false);
+  const [userGender, setUserGender] = useState("Not Specified");
+
+  // Fetch user gender on load
+  useEffect(() => {
+    if (isLoaded && isSignedIn && user?.fullName) {
+      const dbUserId = user.fullName.toLowerCase().replace(/ /g, "_");
+      fetch(`${API_URL}/api/users/${dbUserId}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data && data.gender) {
+            setUserGender(data.gender);
+          }
+        })
+        .catch(err => console.error("Error fetching user gender:", err));
+    }
+  }, [isLoaded, isSignedIn, user]);
+
+  const handleGenderChange = (e) => {
+    const newGender = e.target.value;
+    setUserGender(newGender);
+    if (user?.fullName) {
+      const dbUserId = user.fullName.toLowerCase().replace(/ /g, "_");
+      fetch(`${API_URL}/api/users/${dbUserId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ gender: newGender })
+      })
+        .then(res => res.json())
+        .then(data => {
+          console.log("Gender updated successfully in DB:", data.gender);
+        })
+        .catch(err => console.error("Error saving user gender:", err));
+    }
+  };
 
   // Booking Modal State
   const [bookingSuccess, setBookingSuccess] = useState(false);
@@ -125,7 +160,8 @@ function FindRideContent() {
   }, [bookingSuccess]);
 
   useEffect(() => {
-    fetch(`${API_URL}/api/rides`)
+    const url = `${API_URL}/api/rides?pickup=${encodeURIComponent(pickup)}&destination=${encodeURIComponent(destination)}&womenOnly=${isWomenOnly}&passengers=${passengers}`;
+    fetch(url)
       .then(res => res.json())
       .then(data => {
         setRides(data);
@@ -134,7 +170,7 @@ function FindRideContent() {
         }
       })
       .catch(err => console.error("Error fetching rides:", err));
-  }, []);
+  }, [pickup, destination, isWomenOnly, passengers]);
 
   // Filtering / Sorting logic
   const getFilteredRides = () => {
@@ -143,23 +179,9 @@ function FindRideContent() {
     // Filter by passenger count requested (cannot exceed available seats)
     list = list.filter(ride => ride.availableSeats >= passengers);
 
-    // If search inputs have values, do light keyword filter
-    if (pickup.trim()) {
-      const p = pickup.toLowerCase();
-      list = list.filter(
-        ride => 
-          ride.currentLocation.toLowerCase().includes(p) || 
-          ride.driverName.toLowerCase().includes(p) ||
-          "coimbatore".includes(p)
-      );
-    }
-    if (destination.trim()) {
-      const d = destination.toLowerCase();
-      list = list.filter(
-        ride => 
-          ride.destination.toLowerCase().includes(d) ||
-          "pollachi tiruppur udumalpet palakkad".includes(d)
-      );
+    // Filter by womenOnly if enabled
+    if (isWomenOnly) {
+      list = list.filter(ride => ride.womenOnly === true);
     }
 
     // Sort order
@@ -189,6 +211,11 @@ function FindRideContent() {
 
   // Handle real-time booking process
   const handleBookRide = (ride) => {
+    if (ride.womenOnly && userGender !== "Female") {
+      alert("This ride is reserved for women passengers.");
+      return;
+    }
+
     setSelectedRideForBooking(ride);
     setBookingSuccess(true);
     setBookingStatus("requesting");
@@ -207,7 +234,8 @@ function FindRideContent() {
       passengerName: user?.fullName || "Guest Passenger",
       passengerImage: user?.imageUrl || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=120&h=120&q=80",
       passengerRating: 4.8,
-      status: "Pending"
+      status: "Pending",
+      rideId: ride.rideId || ride.id
     };
 
     // Save to Express Backend
@@ -216,7 +244,13 @@ function FindRideContent() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(bookingPayload)
     })
-      .then(res => res.json())
+      .then(async res => {
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error || "Failed to book ride");
+        }
+        return data;
+      })
       .then(savedBooking => {
         // Emit Socket Events
         if (socketRef.current) {
@@ -231,17 +265,9 @@ function FindRideContent() {
       })
       .catch(err => {
         console.error("Error booking ride in backend:", err);
-        // local fallback
-        const localBooking = { id: Date.now(), ...bookingPayload, status: "Pending" };
-        if (socketRef.current) {
-          console.log("Emitting join-booking-room and book-ride for local fallback:", localBooking.id);
-          socketRef.current.emit("join-booking-room", { bookingId: localBooking.id });
-          socketRef.current.emit("book-ride", localBooking);
-        }
-        try {
-          const existingBookings = JSON.parse(localStorage.getItem("routemate_bookings") || "[]");
-          localStorage.setItem("routemate_bookings", JSON.stringify([localBooking, ...existingBookings]));
-        } catch (e) {}
+        setBookingSuccess(false);
+        setBookingStatus("idle");
+        alert(err.message || "Failed to book ride. Please check your profile gender settings.");
       });
   };
 
@@ -359,9 +385,38 @@ function FindRideContent() {
           
           {/* Filters Bar */}
           <div className="bg-white rounded-2xl p-4 border border-slate-100 shadow-premium flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-            <div className="flex items-center gap-2">
-              <Filter className="w-4 h-4 text-brand-blue-600" />
-              <span className="text-sm font-bold text-slate-800">Filter Rides:</span>
+            <div className="flex items-center gap-4 flex-wrap">
+              <div className="flex items-center gap-2">
+                <Filter className="w-4 h-4 text-brand-blue-600" />
+                <span className="text-sm font-bold text-slate-800">Filter Rides:</span>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer select-none">
+                <input 
+                  type="checkbox" 
+                  checked={isWomenOnly}
+                  onChange={(e) => setIsWomenOnly(e.target.checked)}
+                  className="sr-only peer"
+                />
+                <div className="w-10 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+                <span className="ml-2 text-xs font-extrabold text-purple-600 flex items-center gap-1 uppercase tracking-wider">
+                  🛡️ Women Only Ride
+                </span>
+              </label>
+              
+              {isLoaded && isSignedIn && (
+                <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-3 py-1 rounded-xl">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">My Gender:</span>
+                  <select 
+                    value={userGender} 
+                    onChange={handleGenderChange}
+                    className="bg-transparent text-xs font-bold text-slate-800 outline-none cursor-pointer border-none p-0 focus:ring-0"
+                  >
+                    <option value="Not Specified" className="text-slate-800 font-semibold bg-white">Not Specified</option>
+                    <option value="Female" className="text-slate-800 font-semibold bg-white">Female</option>
+                    <option value="Male" className="text-slate-800 font-semibold bg-white">Male</option>
+                  </select>
+                </div>
+              )}
             </div>
             
             <div className="flex flex-wrap gap-2 w-full sm:w-auto">
@@ -436,7 +491,7 @@ function FindRideContent() {
                     {ride.verified && (
                       <div className="absolute top-0 right-0 bg-brand-green-500 text-white text-[10px] font-extrabold uppercase px-3 py-1 rounded-bl-xl tracking-wider flex items-center gap-1 shadow-sm">
                         <Shield className="w-3 h-3" />
-                        Verified
+                        🟢 Verified Driver
                       </div>
                     )}
 
@@ -479,6 +534,25 @@ function FindRideContent() {
                           <span className="text-[10px] font-bold text-slate-400 bg-slate-50 border border-slate-100 px-2 py-0.5 rounded-md">
                             {ride.vehicleNumber}
                           </span>
+                          
+                          {/* Live Tracking Badge */}
+                          {ride.rideStatus === "Accepted" && (
+                            <span className="text-[9px] font-black text-rose-500 bg-rose-50 border border-rose-100 px-2 py-0.5 rounded-md animate-pulse uppercase tracking-wider">
+                              🟢 Live Tracking
+                            </span>
+                          )}
+
+                          {/* Women Only Badges */}
+                          {ride.womenOnly && (
+                            <>
+                              <span className="text-[9px] font-extrabold text-purple-600 bg-purple-50 border border-purple-100 px-2 py-0.5 rounded-md flex items-center gap-1 uppercase tracking-wider shadow-sm">
+                                🛡️ Women Only
+                              </span>
+                              <span className="text-[9px] font-extrabold text-pink-600 bg-pink-50 border border-pink-100 px-2 py-0.5 rounded-md flex items-center gap-1 uppercase tracking-wider shadow-sm">
+                                👩 Female Driver
+                              </span>
+                            </>
+                          )}
                         </div>
 
                         {/* Route map path */}

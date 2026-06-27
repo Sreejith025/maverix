@@ -29,10 +29,127 @@ app.get("/", (req, res) => {
     });
 });
 
+function getLocationCoords(name) {
+    if (!name) return [11.0168, 76.9558];
+    const n = name.toLowerCase();
+    if (n.includes("coimbatore")) return [11.0168, 76.9558];
+    if (n.includes("pollachi")) return [10.6589, 77.0072];
+    if (n.includes("tiruppur")) return [11.1085, 77.3411];
+    if (n.includes("palakkad")) return [10.7867, 76.6547];
+    if (n.includes("udumalpet")) return [10.5855, 77.2433];
+    if (n.includes("kinathukadavu")) return [10.8234, 76.9858];
+    if (n.includes("eachanari")) return [10.9123, 76.9658];
+    if (n.includes("singanallur")) return [10.9995, 77.0266];
+    return [11.0168, 76.9558];
+}
+
+function getDistance(lat1, lon1, lat2, lon2) {
+    const R = 6371; // km
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+              Math.sin(dLon/2) * Math.sin(dLon/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c;
+}
+
+function isLocationOnRoute(startLocation, endLocation, passengerPickup, passengerDestination) {
+    const s = startLocation.toLowerCase();
+    const e = endLocation.toLowerCase();
+    const pPickup = passengerPickup.toLowerCase();
+    const pDest = passengerDestination.toLowerCase();
+
+    // Direct match check
+    if (s.includes(pPickup) && e.includes(pDest)) {
+        return true;
+    }
+
+    if (
+        (s.includes("coimbatore") && e.includes("pollachi")) || 
+        (s.includes("pollachi") && e.includes("coimbatore"))
+    ) {
+        if (pPickup.includes("kinathukadavu") || pPickup.includes("eachanari")) {
+            if (pDest.includes("pollachi") || pDest.includes("coimbatore")) {
+                return true;
+            }
+        }
+    }
+
+    const routes = [
+        ["coimbatore", "podanur", "eachanari", "kinathukadavu", "achipatti", "pollachi"],
+        ["coimbatore", "singanallur", "peelamedu", "hope college", "coimbatore airport", "avinashi", "tiruppur"],
+        ["coimbatore", "kuniamuthur", "kgo chavadi", "walayar", "kanjikode", "palakkad"],
+        ["coimbatore", "eachanari", "kinathukadavu", "pollachi", "udumalpet"]
+    ];
+
+    for (const route of routes) {
+        let driverStartIndex = -1;
+        let driverEndIndex = -1;
+        for (let i = 0; i < route.length; i++) {
+            if (s.includes(route[i])) driverStartIndex = i;
+            if (e.includes(route[i])) driverEndIndex = i;
+        }
+
+        if (driverStartIndex !== -1 && driverEndIndex !== -1) {
+            // Forward direction
+            if (driverStartIndex < driverEndIndex) {
+                let pStartIndex = -1;
+                let pEndIndex = -1;
+                for (let i = driverStartIndex; i <= driverEndIndex; i++) {
+                    if (pPickup.includes(route[i])) pStartIndex = i;
+                    if (pDest.includes(route[i])) pEndIndex = i;
+                }
+                if (pStartIndex !== -1 && pEndIndex !== -1 && pStartIndex < pEndIndex) {
+                    return true;
+                }
+            }
+            // Backward direction
+            if (driverStartIndex > driverEndIndex) {
+                let pStartIndex = -1;
+                let pEndIndex = -1;
+                for (let i = driverStartIndex; i >= driverEndIndex; i--) {
+                    if (pPickup.includes(route[i])) pStartIndex = i;
+                    if (pDest.includes(route[i])) pEndIndex = i;
+                }
+                if (pStartIndex !== -1 && pEndIndex !== -1 && pStartIndex > pEndIndex) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    return false;
+}
+
 // GET rides
 app.get("/api/rides", async (req, res) => {
     try {
-        const rides = await datastore.getRides();
+        const { pickup, destination } = req.query;
+        let rides = await datastore.getRides();
+        
+        // Filter by ACTIVE/Accepted status
+        rides = rides.filter(r => r.rideStatus === "ACTIVE" || r.rideStatus === "Searching" || r.rideStatus === "Accepted");
+
+        if (pickup && destination) {
+            // Filter by route match
+            rides = rides.filter(ride => 
+                isLocationOnRoute(ride.currentLocation, ride.destination, pickup, destination)
+            );
+
+            // Sort by nearest driver (using passenger pickup coords to driver current position)
+            const passengerCoords = getLocationCoords(pickup);
+            rides.sort((a, b) => {
+                const aLat = a.currentLatitude || getLocationCoords(a.currentLocation)[0];
+                const aLng = a.currentLongitude || getLocationCoords(a.currentLocation)[1];
+                const bLat = b.currentLatitude || getLocationCoords(b.currentLocation)[0];
+                const bLng = b.currentLongitude || getLocationCoords(b.currentLocation)[1];
+                
+                const distA = getDistance(passengerCoords[0], passengerCoords[1], aLat, aLng);
+                const distB = getDistance(passengerCoords[0], passengerCoords[1], bLat, bLng);
+                return distA - distB;
+            });
+        }
         res.json(rides);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -113,6 +230,7 @@ app.post("/api/rides", async (req, res) => {
         passengersOnboard: 0,
         etaMins: Number(etaMins) || 15,
         fare: Number(fare) || 150,
+        rideStatus: "ACTIVE", // set Status = ACTIVE
         verified: verified === undefined ? true : verified
     };
     
@@ -214,6 +332,93 @@ app.get("/api/admin/verification-requests", async (req, res) => {
     try {
         const unverified = await datastore.getUnverifiedDrivers();
         res.json(unverified);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET single driver profile details
+app.get("/api/drivers/:driverId", async (req, res) => {
+    try {
+        const driver = await datastore.getDriver(req.params.driverId);
+        if (!driver) {
+            return res.status(404).json({ error: "Driver not found", driverId: req.params.driverId });
+        }
+        res.json(driver);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST register driver details
+app.post("/api/drivers/:driverId/register", async (req, res) => {
+    try {
+        const { fullName, phone, vehicleType, vehicleNumber, availableSeats, licenseNumber, email } = req.body;
+        if (!fullName || !phone || !vehicleType || !vehicleNumber || !licenseNumber) {
+            return res.status(400).json({ error: "Missing required registration fields" });
+        }
+        const driverProfile = await datastore.registerDriver(req.params.driverId, {
+            fullName,
+            phone,
+            vehicleType,
+            vehicleNumber,
+            availableSeats,
+            licenseNumber,
+            email
+        });
+        res.json(driverProfile);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST verify driver
+app.post("/api/drivers/:driverId/verify", async (req, res) => {
+    try {
+        const updatedDriver = await datastore.verifyDriver(req.params.driverId);
+        res.json(updatedDriver);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST reject driver verification
+app.post("/api/drivers/:driverId/reject", async (req, res) => {
+    try {
+        const updatedDriver = await datastore.rejectDriver(req.params.driverId);
+        res.json(updatedDriver);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET single user profile details
+app.get("/api/users/:userId", async (req, res) => {
+    try {
+        const user = await datastore.getUser(req.params.userId);
+        if (!user) {
+            return res.json({ error: "User not found", userId: req.params.userId });
+        }
+        res.json(user);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Compatibility fallback endpoints mapping Users to Drivers
+app.post("/api/users/:userId/verify", async (req, res) => {
+    try {
+        const updatedDriver = await datastore.verifyDriver(req.params.userId);
+        res.json(updatedDriver);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post("/api/users/:userId/reject", async (req, res) => {
+    try {
+        const updatedDriver = await datastore.rejectDriver(req.params.userId);
+        res.json(updatedDriver);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -354,7 +559,28 @@ io.on("connection", (socket) => {
             console.error(`Failed to save coordinates for user "${userId}" to Users table:`, err.message);
         }
 
-        // 2. Broadcast the location to the assigned partner only (restrict within room)
+        // 2. Also update Ride coordinates in Rides table if the updater is a driver
+        if (role === "driver") {
+            try {
+                const booking = await datastore.getBooking(bookingId);
+                if (booking && booking.rideId) {
+                    await datastore.docClient.send(new UpdateCommand({
+                        TableName: "Rides",
+                        Key: { rideId: String(booking.rideId) },
+                        UpdateExpression: "SET currentLatitude = :lat, currentLongitude = :lng, lastUpdated = :now",
+                        ExpressionAttributeValues: {
+                            ":lat": Number(lat),
+                            ":lng": Number(lng),
+                            ":now": new Date().toISOString()
+                        }
+                    }));
+                }
+            } catch (err) {
+                console.error(`Failed to update Ride coords for booking "${bookingId}":`, err.message);
+            }
+        }
+
+        // 3. Broadcast the location to the assigned partner only (restrict within room)
         socket.to(roomName).emit("location-broadcast", { userId, role, lat, lng });
     });
 
@@ -384,6 +610,25 @@ io.on("connection", (socket) => {
                     UpdateExpression: "SET rideStatus = :s",
                     ExpressionAttributeValues: { ":s": status }
                 }));
+            }
+
+            // Save payment history on completion
+            if (status === "Completed") {
+                try {
+                    const booking = await datastore.getBooking(bookingId);
+                    if (booking) {
+                        await datastore.createPayment({
+                            paymentId: String(Date.now()),
+                            rideId: booking.rideId,
+                            driverName: booking.driverName,
+                            passengerName: booking.passengerName,
+                            amount: booking.fare
+                        });
+                        console.log(`Payment history created for completed ride: Driver ${booking.driverName}, Passenger ${booking.passengerName}, Amount ₹${booking.fare}`);
+                    }
+                } catch (e) {
+                    console.error("Failed to log payment on ride completion:", e.message);
+                }
             }
         } catch (err) {
             console.error("Error updating ride status in database:", err.message);

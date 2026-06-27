@@ -81,6 +81,8 @@ async function seedDatabase() {
         await ensureTableExists("Bookings", "bookingId", "S");
         await ensureTableExists("Wallet", "userId", "S");
         await ensureTableExists("Reviews", "reviewId", "S");
+        await ensureTableExists("Drivers", "driverId", "S");
+        await ensureTableExists("Payments", "paymentId", "S");
 
         // Clear existing Rides
         const scanRides = await docClient.send(new ScanCommand({ TableName: "Rides" }));
@@ -189,15 +191,63 @@ const datastore = {
         }));
         const updated = res.Attributes;
         if (updated && updated.rideId) {
-            await docClient.send(new UpdateCommand({
-                TableName: "Rides",
-                Key: { rideId: String(updated.rideId) },
-                UpdateExpression: "SET rideStatus = :s, passengerId = :p",
-                ExpressionAttributeValues: {
-                    ":s": "Accepted",
-                    ":p": updated.passengerId || "guest_passenger"
+            try {
+                // Get the Ride
+                const getRide = await docClient.send(new GetCommand({ TableName: "Rides", Key: { rideId: String(updated.rideId) } }));
+                const ride = getRide.Item;
+                if (ride) {
+                    // Get all active bookings for this ride (Confirmed or Pending/this one)
+                    const getBookings = await docClient.send(new ScanCommand({
+                        TableName: "Bookings",
+                        FilterExpression: "rideId = :r AND (bookingStatus = :s1 OR bookingStatus = :s2)",
+                        ExpressionAttributeValues: {
+                            ":r": String(updated.rideId),
+                            ":s1": "Confirmed",
+                            ":s2": "Pending"
+                        }
+                    }));
+                    let activeBookings = getBookings.Items || [];
+                    
+                    if (!activeBookings.some(b => b.bookingId === updated.bookingId)) {
+                        activeBookings.push(updated);
+                    }
+
+                    const requestedSeats = Number(updated.passengers) || 1;
+                    const totalPassengersOnboard = activeBookings.reduce((sum, b) => sum + (Number(b.passengers) || 1), 0);
+                    const baseFare = Number(ride.baseFare || ride.fare) || 400; // retain initial fare as baseFare if present, otherwise ride.fare
+                    const sharedFare = Math.round(baseFare / Math.max(1, totalPassengersOnboard));
+
+                    const newAvailable = Math.max(0, (ride.availableSeats || 4) - requestedSeats);
+                    const newOnboard = (ride.passengersOnboard || 0) + requestedSeats;
+                    
+                    // Update Ride model
+                    await docClient.send(new UpdateCommand({
+                        TableName: "Rides",
+                        Key: { rideId: String(updated.rideId) },
+                        UpdateExpression: "SET rideStatus = :s, availableSeats = :av, passengersOnboard = :on, baseFare = :bf",
+                        ExpressionAttributeValues: {
+                            ":s": "Accepted",
+                            ":av": newAvailable,
+                            ":on": newOnboard,
+                            ":bf": baseFare
+                        }
+                    }));
+
+                    // Update all active bookings with shared fare
+                    for (const b of activeBookings) {
+                        await docClient.send(new UpdateCommand({
+                            TableName: "Bookings",
+                            Key: { bookingId: String(b.bookingId) },
+                            UpdateExpression: "SET fare = :f",
+                            ExpressionAttributeValues: {
+                                ":f": sharedFare
+                            }
+                        }));
+                    }
                 }
-            }));
+            } catch (err) {
+                console.error("confirmBooking capacity/fare updates failed:", err.message);
+            }
         }
         return { ...updated, id: Number(updated.bookingId) || updated.bookingId };
     },
@@ -212,12 +262,57 @@ const datastore = {
         }));
         const updated = res.Attributes;
         if (updated && updated.rideId) {
-            await docClient.send(new UpdateCommand({
-                TableName: "Rides",
-                Key: { rideId: String(updated.rideId) },
-                UpdateExpression: "SET rideStatus = :s",
-                ExpressionAttributeValues: { ":s": "Cancelled" }
-            }));
+            try {
+                // Get the Ride
+                const getRide = await docClient.send(new GetCommand({ TableName: "Rides", Key: { rideId: String(updated.rideId) } }));
+                const ride = getRide.Item;
+                if (ride) {
+                    // Get remaining active bookings
+                    const getBookings = await docClient.send(new ScanCommand({
+                        TableName: "Bookings",
+                        FilterExpression: "rideId = :r AND bookingStatus = :s AND bookingId <> :b",
+                        ExpressionAttributeValues: {
+                            ":r": String(updated.rideId),
+                            ":s": "Confirmed",
+                            ":b": String(updated.bookingId)
+                        }
+                    }));
+                    const activeBookings = getBookings.Items || [];
+
+                    const cancelledSeats = Number(updated.passengers) || 1;
+                    const totalPassengersOnboard = activeBookings.reduce((sum, b) => sum + (Number(b.passengers) || 1), 0);
+                    const baseFare = Number(ride.baseFare || ride.fare) || 400;
+                    const sharedFare = Math.round(baseFare / Math.max(1, totalPassengersOnboard));
+
+                    const newAvailable = Math.min((ride.availableSeats || 4) + cancelledSeats, 6);
+                    const newOnboard = Math.max(0, (ride.passengersOnboard || 0) - cancelledSeats);
+
+                    await docClient.send(new UpdateCommand({
+                        TableName: "Rides",
+                        Key: { rideId: String(updated.rideId) },
+                        UpdateExpression: "SET rideStatus = :s, availableSeats = :av, passengersOnboard = :on",
+                        ExpressionAttributeValues: {
+                            ":s": activeBookings.length > 0 ? "Accepted" : "ACTIVE",
+                            ":av": newAvailable,
+                            ":on": newOnboard
+                        }
+                    }));
+
+                    // Update remaining bookings with new shared fare
+                    for (const b of activeBookings) {
+                        await docClient.send(new UpdateCommand({
+                            TableName: "Bookings",
+                            Key: { bookingId: String(b.bookingId) },
+                            UpdateExpression: "SET fare = :f",
+                            ExpressionAttributeValues: {
+                                ":f": sharedFare
+                            }
+                        }));
+                    }
+                }
+            } catch (err) {
+                console.error("cancelBooking capacity/fare updates failed:", err.message);
+            }
         }
         return { ...updated, id: Number(updated.bookingId) || updated.bookingId };
     },
@@ -271,14 +366,148 @@ const datastore = {
         const res = await docClient.send(new ScanCommand({ TableName: "Users" }));
         return res.Items || [];
     },
+    getUser: async (userId) => {
+        const res = await docClient.send(new GetCommand({
+            TableName: "Users",
+            Key: { userId: String(userId) }
+        }));
+        return res.Item;
+    },
+    getBooking: async (bookingId) => {
+        const res = await docClient.send(new GetCommand({
+            TableName: "Bookings",
+            Key: { bookingId: String(bookingId) }
+        }));
+        return res.Item;
+    },
+    createPayment: async (payment) => {
+        const item = {
+            paymentId: String(payment.paymentId || Date.now()),
+            rideId: String(payment.rideId),
+            driverName: payment.driverName,
+            passengerName: payment.passengerName || "Guest Passenger",
+            amount: Number(payment.amount),
+            date: new Date().toISOString()
+        };
+        await docClient.send(new PutCommand({ TableName: "Payments", Item: item }));
+        return item;
+    },
+    getDriver: async (driverId) => {
+        const res = await docClient.send(new GetCommand({
+            TableName: "Drivers",
+            Key: { driverId: String(driverId) }
+        }));
+        return res.Item;
+    },
+    registerDriver: async (driverId, profileData) => {
+        const item = {
+            driverId: String(driverId),
+            fullName: profileData.fullName,
+            phone: profileData.phone,
+            vehicleType: profileData.vehicleType, // Vehicle Model
+            vehicleNumber: profileData.vehicleNumber,
+            availableSeats: Number(profileData.availableSeats) || 4,
+            licenseNumber: profileData.licenseNumber,
+            verified: false,
+            rating: 4.8,
+            trips: 0,
+            lastUpdated: new Date().toISOString()
+        };
+        await docClient.send(new PutCommand({ TableName: "Drivers", Item: item }));
+        
+        // Also update Users table record to set role = "driver"
+        try {
+            await docClient.send(new UpdateCommand({
+                TableName: "Users",
+                Key: { userId: String(driverId) },
+                UpdateExpression: "SET #r = :role, vehicleType = :vt, vehicleNumber = :vn, phone = :ph, verified = :v, #n = :name, email = :email, lastUpdated = :now",
+                ExpressionAttributeNames: {
+                    "#r": "role",
+                    "#n": "name"
+                },
+                ExpressionAttributeValues: {
+                    ":role": "driver",
+                    ":vt": profileData.vehicleType,
+                    ":vn": profileData.vehicleNumber,
+                    ":ph": profileData.phone,
+                    ":v": false,
+                    ":name": profileData.fullName,
+                    ":email": profileData.email || "No email",
+                    ":now": new Date().toISOString()
+                }
+            }));
+        } catch (err) {
+            console.error("Failed to sync driver registration to Users table:", err.message);
+        }
+        
+        return item;
+    },
+    verifyDriver: async (driverId) => {
+        const res = await docClient.send(new UpdateCommand({
+            TableName: "Drivers",
+            Key: { driverId: String(driverId) },
+            UpdateExpression: "SET verified = :v",
+            ExpressionAttributeValues: { ":v": true },
+            ReturnValues: "ALL_NEW"
+        }));
+        
+        // Also update Users table verified status
+        try {
+            await docClient.send(new UpdateCommand({
+                TableName: "Users",
+                Key: { userId: String(driverId) },
+                UpdateExpression: "SET verified = :v",
+                ExpressionAttributeValues: { ":v": true }
+            }));
+        } catch (err) {
+            console.error("Failed to sync verification status to Users table:", err.message);
+        }
+        
+        return res.Attributes;
+    },
+    rejectDriver: async (driverId) => {
+        const res = await docClient.send(new UpdateCommand({
+            TableName: "Drivers",
+            Key: { driverId: String(driverId) },
+            UpdateExpression: "SET verified = :v",
+            ExpressionAttributeValues: { ":v": false },
+            ReturnValues: "ALL_NEW"
+        }));
+        
+        // Also reset Users table role back to passenger
+        try {
+            await docClient.send(new UpdateCommand({
+                TableName: "Users",
+                Key: { userId: String(driverId) },
+                UpdateExpression: "SET #r = :role, verified = :v",
+                ExpressionAttributeNames: { "#r": "role" },
+                ExpressionAttributeValues: {
+                    ":role": "passenger",
+                    ":v": false
+                }
+            }));
+        } catch (err) {
+            console.error("Failed to sync rejection to Users table:", err.message);
+        }
+        
+        return res.Attributes;
+    },
     getUnverifiedDrivers: async () => {
         const res = await docClient.send(new ScanCommand({
-            TableName: "Rides",
+            TableName: "Drivers",
             FilterExpression: "verified = :v",
             ExpressionAttributeValues: { ":v": false }
         }));
         const items = res.Items || [];
-        return items.map(item => ({ ...item, id: Number(item.rideId) || item.rideId }));
+        return items.map((item, index) => ({
+            id: item.driverId || index,
+            driverName: item.fullName || "Unknown Driver",
+            vehicleType: item.vehicleType || "Not Specified",
+            vehicleNumber: item.vehicleNumber || "Not Specified",
+            phone: item.phone || "+91 99999 99999",
+            date: item.lastUpdated ? item.lastUpdated.split("T")[0] : new Date().toISOString().split("T")[0],
+            status: "Pending"
+        }));
     },
     seedDatabase
 };

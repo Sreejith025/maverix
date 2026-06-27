@@ -32,6 +32,7 @@ export default function DriverDashboard() {
   const isMocked = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("mock") === "true";
   const driverName = user?.fullName || "Sanjay Kumar";
   const driverAvatar = user?.imageUrl || "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=120&h=120&q=80";
+  const dbUserId = driverName.toLowerCase().replace(/ /g, "_");
 
   // Navigation active tab
   const [activeTab, setActiveTab] = useState("Dashboard"); // Dashboard, Active Trips, Ride Requests, Earnings, Reviews, Settings
@@ -58,6 +59,25 @@ export default function DriverDashboard() {
   // Recent trips state
   const [recentTrips, setRecentTrips] = useState([]);
 
+  // Driver Profile states
+  const [driverStatus, setDriverStatus] = useState("loading"); // loading | unregistered | pending | verified
+  const [registrationForm, setRegistrationForm] = useState({
+    fullName: "",
+    phone: "",
+    vehicleType: "",
+    vehicleNumber: "",
+    availableSeats: 4,
+    licenseNumber: "",
+    loading: false
+  });
+
+  // Automatically sync Clerk driverName to registrationForm fullName when user object loads
+  useEffect(() => {
+    if (driverName && !registrationForm.fullName) {
+      setRegistrationForm(prev => ({ ...prev, fullName: driverName }));
+    }
+  }, [driverName]);
+
   // Incoming passenger requests state
   const [rideRequests, setRideRequests] = useState([]);
 
@@ -78,6 +98,73 @@ export default function DriverDashboard() {
     etaMins: 15,
     loading: false
   });
+
+  // Fetch driver registration status from backend
+  useEffect(() => {
+    if (isMocked) {
+      setDriverStatus("verified");
+      return;
+    }
+    if (isLoaded && isSignedIn && driverName) {
+      const dbUserId = driverName.toLowerCase().replace(/ /g, "_");
+      fetch(`${API_URL}/api/drivers/${dbUserId}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data && !data.error) {
+            if (data.verified) {
+              setDriverStatus("verified");
+            } else {
+              setDriverStatus("pending");
+            }
+          } else {
+            setDriverStatus("unregistered");
+          }
+        })
+        .catch(err => {
+          console.error("Error loading driver status:", err);
+          setDriverStatus("unregistered");
+        });
+    }
+  }, [isLoaded, isSignedIn, driverName, isMocked]);
+
+  const handleRegisterDriverSubmit = (e) => {
+    e.preventDefault();
+    setRegistrationForm(prev => ({ ...prev, loading: true }));
+
+    const payload = {
+      fullName: registrationForm.fullName,
+      phone: registrationForm.phone,
+      vehicleType: registrationForm.vehicleType,
+      vehicleNumber: registrationForm.vehicleNumber,
+      availableSeats: Number(registrationForm.availableSeats),
+      licenseNumber: registrationForm.licenseNumber,
+      email: email
+    };
+
+    fetch(`${API_URL}/api/drivers/${dbUserId}/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    })
+      .then(res => res.json())
+      .then(data => {
+        setRegistrationForm(prev => ({ ...prev, loading: false }));
+        if (data && !data.error) {
+          setDriverStatus("pending");
+          setAlertMessage({ type: "success", text: "Driver profile submitted successfully! Pending verification." });
+          setTimeout(() => setAlertMessage(null), 5000);
+        } else {
+          setAlertMessage({ type: "error", text: data.error || "Failed to register driver profile." });
+          setTimeout(() => setAlertMessage(null), 5000);
+        }
+      })
+      .catch(err => {
+        console.error("Error submitting driver registration:", err);
+        setRegistrationForm(prev => ({ ...prev, loading: false }));
+        setAlertMessage({ type: "error", text: "Connection error. Please try again." });
+        setTimeout(() => setAlertMessage(null), 5000);
+      });
+  };
 
   // Connect to Socket.io and join driver room
   useEffect(() => {
@@ -327,7 +414,7 @@ export default function DriverDashboard() {
   useEffect(() => {
     if (isLoaded) {
       const isMock = new URLSearchParams(window.location.search).get("mock") === "true";
-      if (!isMock && (!isSignedIn || user?.primaryEmailAddress?.emailAddress !== "abisri024@gmail.com")) {
+      if (!isMock && !isSignedIn) {
         router.push("/");
       }
     }
@@ -347,7 +434,7 @@ export default function DriverDashboard() {
     }
   }
 
-  if (!isMocked && (!isSignedIn || email !== "abisri024@gmail.com")) {
+  if (!isMocked && !isSignedIn) {
     return null;
   }
 
@@ -502,6 +589,215 @@ export default function DriverDashboard() {
   };
 
 
+
+  if (driverStatus === "loading") {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3 text-slate-400">
+          <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+          <span className="text-sm font-semibold">Loading driver profile...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (driverStatus === "unregistered") {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center justify-center p-6 relative overflow-hidden animate-fade-in">
+        {/* Decorative ambient background glows */}
+        <div className="absolute top-1/4 left-1/4 w-[400px] h-[400px] bg-blue-600/10 rounded-full blur-[120px] -z-10 animate-pulse"></div>
+        <div className="absolute bottom-1/4 right-1/4 w-[400px] h-[400px] bg-emerald-500/10 rounded-full blur-[120px] -z-10 animate-pulse" style={{ animationDelay: '2s' }}></div>
+
+        <div className="w-full max-w-lg bg-slate-900/40 backdrop-blur-md border border-slate-800 p-8 rounded-3xl shadow-2xl space-y-6">
+          <div className="text-center space-y-2">
+            <div className="w-16 h-16 rounded-2xl bg-gradient-brand flex items-center justify-center mx-auto shadow-lg shadow-blue-500/20 animate-bounce">
+              <Navigation className="w-8 h-8 text-white transform rotate-45" />
+            </div>
+            <h1 className="text-2xl font-black tracking-tight text-white mt-4">Become a RouteMate Driver</h1>
+            <p className="text-sm text-slate-400 font-medium">Join the premium ride-sharing network. Fill in your details below to submit your operator profile for review.</p>
+          </div>
+
+          {alertMessage && (
+            <div className={`p-4 rounded-xl border text-xs font-semibold flex items-center gap-2 ${
+              alertMessage.type === "error" ? "bg-rose-500/10 border-rose-500/20 text-rose-400" : "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
+            }`}>
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{alertMessage.text}</span>
+            </div>
+          )}
+
+          <form onSubmit={handleRegisterDriverSubmit} className="space-y-4">
+            <div className="space-y-1.5">
+              <label className="text-xs font-extrabold text-slate-400 uppercase tracking-wider">Driver Full Name</label>
+              <input 
+                type="text" 
+                required
+                value={registrationForm.fullName}
+                onChange={(e) => setRegistrationForm({...registrationForm, fullName: e.target.value})}
+                placeholder="Driver Name"
+                className="w-full px-4 py-3 bg-slate-900 border border-slate-800 rounded-xl text-slate-100 font-semibold text-xs outline-none focus:border-brand-blue-500 focus:ring-1 focus:ring-brand-blue-500/20 transition-all" 
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-extrabold text-slate-400 uppercase tracking-wider">Email Address</label>
+              <input 
+                type="email" 
+                disabled 
+                value={email || ""} 
+                className="w-full px-4 py-3 bg-slate-900 border border-slate-850 rounded-xl text-slate-500 font-semibold text-xs outline-none cursor-not-allowed" 
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-extrabold text-slate-400 uppercase tracking-wider">Phone Number</label>
+              <input 
+                type="tel" 
+                required 
+                placeholder="e.g., +91 98765 43210" 
+                value={registrationForm.phone}
+                onChange={(e) => setRegistrationForm({...registrationForm, phone: e.target.value})}
+                className="w-full px-4 py-3 bg-slate-900/60 border border-slate-800 focus:border-brand-blue-500 focus:ring-1 focus:ring-brand-blue-500/20 rounded-xl text-slate-100 font-semibold text-xs outline-none transition-all" 
+              />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-xs font-extrabold text-slate-400 uppercase tracking-wider">Vehicle Model</label>
+                <input 
+                  type="text" 
+                  required 
+                  placeholder="e.g., Maruti Swift Dzire" 
+                  value={registrationForm.vehicleType}
+                  onChange={(e) => setRegistrationForm({...registrationForm, vehicleType: e.target.value})}
+                  className="w-full px-4 py-3 bg-slate-900/60 border border-slate-800 focus:border-brand-blue-500 focus:ring-1 focus:ring-brand-blue-500/20 rounded-xl text-slate-100 font-semibold text-xs outline-none transition-all" 
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-extrabold text-slate-400 uppercase tracking-wider">License Plate Number</label>
+                <input 
+                  type="text" 
+                  required 
+                  placeholder="e.g., TN-37-CZ-9988" 
+                  value={registrationForm.vehicleNumber}
+                  onChange={(e) => setRegistrationForm({...registrationForm, vehicleNumber: e.target.value})}
+                  className="w-full px-4 py-3 bg-slate-900/60 border border-slate-800 focus:border-brand-blue-500 focus:ring-1 focus:ring-brand-blue-500/20 rounded-xl text-slate-100 font-semibold text-xs outline-none transition-all" 
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-xs font-extrabold text-slate-400 uppercase tracking-wider">License Number</label>
+                <input 
+                  type="text" 
+                  required 
+                  placeholder="e.g., DL-1420110012345" 
+                  value={registrationForm.licenseNumber}
+                  onChange={(e) => setRegistrationForm({...registrationForm, licenseNumber: e.target.value})}
+                  className="w-full px-4 py-3 bg-slate-900/60 border border-slate-800 focus:border-brand-blue-500 focus:ring-1 focus:ring-brand-blue-500/20 rounded-xl text-slate-100 font-semibold text-xs outline-none transition-all" 
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-extrabold text-slate-400 uppercase tracking-wider">Available Seats Capacity</label>
+                <select 
+                  value={registrationForm.availableSeats}
+                  onChange={(e) => setRegistrationForm({...registrationForm, availableSeats: parseInt(e.target.value)})}
+                  className="w-full px-3 py-3 bg-slate-900/60 border border-slate-800 focus:border-brand-blue-500 focus:ring-1 focus:ring-brand-blue-500/20 rounded-xl text-slate-100 font-semibold text-xs outline-none cursor-pointer"
+                >
+                  {[1,2,3,4,5,6].map(n => <option key={n} value={n} className="bg-slate-900 text-slate-100">{n} Seats</option>)}
+                </select>
+              </div>
+            </div>
+
+            <button 
+              type="submit" 
+              disabled={registrationForm.loading}
+              className="w-full py-3.5 bg-gradient-brand text-white rounded-xl text-xs font-black shadow-lg shadow-blue-500/20 hover:scale-[1.01] active:scale-100 transition-all cursor-pointer flex items-center justify-center gap-2 mt-2"
+            >
+              {registrationForm.loading ? (
+                <div className="w-4.5 h-4.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+              ) : (
+                "Submit Driver Profile"
+              )}
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  if (driverStatus === "pending") {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center justify-center p-6 relative overflow-hidden animate-fade-in">
+        {/* Decorative ambient background glows */}
+        <div className="absolute top-1/4 left-1/4 w-[400px] h-[400px] bg-blue-600/10 rounded-full blur-[120px] -z-10 animate-pulse"></div>
+        <div className="absolute bottom-1/4 right-1/4 w-[400px] h-[400px] bg-emerald-500/10 rounded-full blur-[120px] -z-10 animate-pulse" style={{ animationDelay: '2s' }}></div>
+
+        <div className="w-full max-w-lg bg-slate-900/40 backdrop-blur-md border border-slate-800 p-8 rounded-3xl shadow-2xl text-center space-y-6">
+          <div className="w-20 h-20 rounded-3xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center mx-auto shadow-lg shadow-amber-500/5 animate-pulse">
+            <Clock className="w-10 h-10 text-amber-500" />
+          </div>
+
+          <div className="space-y-2">
+            <h1 className="text-2xl font-black tracking-tight text-white">Verification Pending</h1>
+            <p className="text-sm text-slate-400 font-medium leading-relaxed">
+              Your driver profile has been successfully submitted and is currently pending administrator verification.
+            </p>
+            <p className="text-xs text-slate-500 font-medium max-w-md mx-auto">
+              We review commercial credentials, plate registries, and background checks within 24 hours. Once verified, your dashboard console will be unlocked automatically.
+            </p>
+          </div>
+
+          <div className="bg-slate-900/80 border border-slate-800 p-4 rounded-2xl text-left text-xs font-semibold text-slate-400 space-y-2.5 max-w-sm mx-auto">
+            <div className="flex justify-between border-b border-slate-805/60 pb-2">
+              <span>Driver Identity:</span>
+              <strong className="text-white">{driverName}</strong>
+            </div>
+            <div className="flex justify-between">
+              <span>License Plate Check:</span>
+              <span className="text-amber-500 font-bold font-mono">TN-37-CZ-XXXX</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Background Registry:</span>
+              <span className="text-amber-500 font-bold">IN QUEUE</span>
+            </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row gap-3 pt-2">
+            <button 
+              onClick={() => {
+                const dbUserId = driverName.toLowerCase().replace(/ /g, "_");
+                fetch(`${API_URL}/api/users/${dbUserId}`)
+                  .then(res => res.json())
+                  .then(data => {
+                    if (data && data.verified) {
+                      setDriverStatus("verified");
+                      setAlertMessage({ type: "success", text: "Your profile has been verified! Welcome." });
+                      setTimeout(() => setAlertMessage(null), 4000);
+                    } else {
+                      alert("Your profile is still in the verification queue.");
+                    }
+                  })
+                  .catch(err => console.error("Error refreshing driver status:", err));
+              }}
+              className="flex-1 py-3 bg-gradient-brand text-white rounded-xl text-xs font-black shadow transition-all cursor-pointer"
+            >
+              Re-check Status
+            </button>
+            <Link 
+              href="/"
+              className="flex-1 py-3 bg-slate-900 hover:bg-slate-800 text-slate-300 rounded-xl text-xs font-bold border border-slate-800 transition-all text-center flex items-center justify-center"
+            >
+              Return to Landing
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row antialiased">

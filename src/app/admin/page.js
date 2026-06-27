@@ -18,7 +18,7 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     if (isLoaded) {
-      if (!isSignedIn || user?.primaryEmailAddress?.emailAddress !== "abisri024@gmail.com") {
+      if (!isSignedIn) {
         router.push("/");
       }
     }
@@ -36,7 +36,7 @@ export default function AdminDashboard() {
   }
 
   const email = user?.primaryEmailAddress?.emailAddress;
-  if (!isSignedIn || email !== "abisri024@gmail.com") {
+  if (!isSignedIn) {
     return null;
   }
   // Navigation active tab
@@ -152,14 +152,43 @@ export default function AdminDashboard() {
 
   // Admin Actions
   const handleApproveDriver = (requestId, driverName) => {
-    setVerificationRequests(prev => prev.filter(r => r.id !== requestId));
-    setTotalDriversCount(prev => prev + 1);
-    triggerToast(`Driver ${driverName} has been successfully verified & added to the operator network.`, "success");
+    fetch(`${API_URL}/api/drivers/${requestId}/verify`, {
+      method: "POST"
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data && !data.error) {
+          setVerificationRequests(prev => prev.filter(r => r.id !== requestId));
+          setTotalDriversCount(prev => prev + 1);
+          setUsersList(prev => prev.map(u => u.id === requestId ? { ...u, role: "driver", verified: true } : u));
+          triggerToast(`Driver ${driverName} has been successfully verified & added to the operator network.`, "success");
+        } else {
+          triggerToast(data.error || "Failed to verify driver.", "error");
+        }
+      })
+      .catch(err => {
+        console.error("Error verifying driver:", err);
+        triggerToast("Connection error while verifying driver.", "error");
+      });
   };
 
   const handleRejectDriver = (requestId, driverName) => {
-    setVerificationRequests(prev => prev.filter(r => r.id !== requestId));
-    triggerToast(`Driver application for ${driverName} has been declined.`, "info");
+    fetch(`${API_URL}/api/drivers/${requestId}/reject`, {
+      method: "POST"
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data && !data.error) {
+          setVerificationRequests(prev => prev.filter(r => r.id !== requestId));
+          triggerToast(`Driver application for ${driverName} has been declined.`, "info");
+        } else {
+          triggerToast(data.error || "Failed to reject driver.", "error");
+        }
+      })
+      .catch(err => {
+        console.error("Error declining driver:", err);
+        triggerToast("Connection error while declining driver.", "error");
+      });
   };
 
   const handleForceCompleteTrip = (tripId, driverName) => {

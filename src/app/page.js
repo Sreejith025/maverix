@@ -27,7 +27,7 @@ const Map = dynamic(() => import("@/components/Map"), {
 export default function Home() {
   const router = useRouter();
   const { isSignedIn, isLoaded, user } = useUser();
-  const isAdmin = isSignedIn && user?.primaryEmailAddress?.emailAddress === "abisri024@gmail.com";
+  const isAdmin = isSignedIn;
   
   // Responsive navigation state
   const [isMenuOpen, setIsMenuOpen] = useState(false);

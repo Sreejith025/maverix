@@ -28,7 +28,7 @@ const Map = dynamic(() => import("@/components/Map"), {
 function FindRideContent() {
   const searchParams = useSearchParams();
   const { isSignedIn, isLoaded, user } = useUser();
-  const isAdmin = isSignedIn && user?.primaryEmailAddress?.emailAddress === "abisri024@gmail.com";
+  const isAdmin = isSignedIn;
 
   // Inputs state
   const [pickup, setPickup] = useState("");

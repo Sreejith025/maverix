@@ -28,7 +28,7 @@ const MapComponent = dynamic(() => import("@/components/Map"), {
 export default function PassengerDashboard() {
   const router = useRouter();
   const { user, isLoaded, isSignedIn } = useUser();
-  const isAdmin = isSignedIn && user?.primaryEmailAddress?.emailAddress === "abisri024@gmail.com";
+  const isAdmin = isSignedIn;
   const passengerName = user?.firstName || "Commuter";
   const passengerEmail = user?.primaryEmailAddress?.emailAddress || "commuter@routemate.com";
   const passengerAvatar = user?.imageUrl || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80";

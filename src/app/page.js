@@ -143,36 +143,12 @@ export default function Home() {
 
   // Popular routes data
   const popularRoutes = [
-    { from: "Coimbatore", to: "Pollachi", price: "₹180", time: "45 mins", image: "https://images.unsplash.com/photo-1570168007244-2370413b41d5?auto=format&fit=crop&w=400&q=80" },
-    { from: "Coimbatore", to: "Tiruppur", price: "₹210", time: "1 hour", image: "https://images.unsplash.com/photo-1540959733332-eab4deceeaf7?auto=format&fit=crop&w=400&q=80" },
-    { from: "Pollachi", to: "Udumalpet", price: "₹120", time: "30 mins", image: "https://images.unsplash.com/photo-1605276374104-dee2a0ed3cd6?auto=format&fit=crop&w=400&q=80" },
-    { from: "Coimbatore", to: "Palakkad", price: "₹250", time: "1.2 hours", image: "https://images.unsplash.com/photo-1596422846543-75c6fc18a52b?auto=format&fit=crop&w=400&q=80" },
+    { from: "Coimbatore", to: "Pollachi", price: "₹180", time: "45 mins" },
+    { from: "Coimbatore", to: "Tiruppur", price: "₹210", time: "1 hour" },
+    { from: "Pollachi", to: "Udumalpet", price: "₹120", time: "30 mins" },
+    { from: "Coimbatore", to: "Palakkad", price: "₹250", time: "1.2 hours" },
   ];
 
-  // Testimonials data
-  const testimonials = [
-    {
-      quote: "RouteMate completely changed my daily commute. I save over ₹4,000 every month by sharing taxi rides with two other techies who head to the same IT park in Saravanampatti.",
-      author: "Aditi Sharma",
-      role: "Software Engineer",
-      rating: 5,
-      avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=120&h=120&q=80"
-    },
-    {
-      quote: "As a frequent traveler between Coimbatore and Palakkad, RouteMate has been a blessing. Driver verification makes me feel super safe, and the pricing is very transparent.",
-      author: "Karthik Raja",
-      role: "Business Analyst",
-      rating: 5,
-      avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=120&h=120&q=80"
-    },
-    {
-      quote: "Registering as a driver was so easy. I drive back from Pollachi to Coimbatore every weekend, and now my fuel costs are 100% covered by taking nice co-passengers with me.",
-      author: "Sanjay Kumar",
-      role: "Weekend Driver / Designer",
-      rating: 5,
-      avatar: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=120&h=120&q=80"
-    }
-  ];
 
   // Auto-fill form when clicking a popular route
   const handleRouteClick = (from, to) => {
@@ -885,26 +861,58 @@ export default function Home() {
         </div>
       )}
 
-      {/* STATISTICS SECTION */}
-      <section className="bg-gradient-brand text-white py-12 px-4 relative overflow-hidden">
+      {/* ARCHITECTURE HIGHLIGHTS SECTION */}
+      <section className="bg-gradient-brand text-white py-16 px-4 relative overflow-hidden">
         <div className="absolute inset-0 bg-grid-pattern opacity-10 pointer-events-none"></div>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-8 text-center">
-            <div className="space-y-1">
-              <div className="text-3xl sm:text-4xl font-extrabold tracking-tight">142,500+</div>
-              <div className="text-xs sm:text-sm font-semibold text-blue-100 uppercase tracking-wider">Total Trips Shared</div>
+          <div className="text-center max-w-3xl mx-auto mb-12 space-y-2">
+            <span className="text-xs font-bold uppercase tracking-wider text-blue-100 bg-white/10 px-3.5 py-1 rounded-full">
+              Hackathon Prototype Architecture
+            </span>
+            <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
+              Powered by Modern Stack Technologies
+            </h2>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+            <div className="glass-card bg-white/5 border border-white/10 rounded-2xl p-6 flex flex-col items-center text-center space-y-3">
+              <div className="w-12 h-12 rounded-xl bg-white/10 flex items-center justify-center text-blue-200">
+                <Sparkles className="w-6 h-6" />
+              </div>
+              <h3 className="font-bold text-base">Real-Time Sync</h3>
+              <p className="text-xs text-blue-100/80 leading-relaxed font-medium">
+                Live ride request updates and instant driver coordination powered by WebSockets.
+              </p>
             </div>
-            <div className="space-y-1">
-              <div className="text-3xl sm:text-4xl font-extrabold tracking-tight">₹28.4 Million</div>
-              <div className="text-xs sm:text-sm font-semibold text-blue-100 uppercase tracking-wider">Passenger Money Saved</div>
+            
+            <div className="glass-card bg-white/5 border border-white/10 rounded-2xl p-6 flex flex-col items-center text-center space-y-3">
+              <div className="w-12 h-12 rounded-xl bg-white/10 flex items-center justify-center text-blue-200">
+                <Navigation className="w-6 h-6 transform rotate-45" />
+              </div>
+              <h3 className="font-bold text-base">Dynamic GPS Routing</h3>
+              <p className="text-xs text-blue-100/80 leading-relaxed font-medium">
+                Interactive routing maps utilizing OpenStreetMap (OSM) and Leaflet GPS engine.
+              </p>
             </div>
-            <div className="space-y-1">
-              <div className="text-3xl sm:text-4xl font-extrabold tracking-tight">12,800+</div>
-              <div className="text-xs sm:text-sm font-semibold text-blue-100 uppercase tracking-wider">Active Drivers</div>
+            
+            <div className="glass-card bg-white/5 border border-white/10 rounded-2xl p-6 flex flex-col items-center text-center space-y-3">
+              <div className="w-12 h-12 rounded-xl bg-white/10 flex items-center justify-center text-blue-200">
+                <DollarSign className="w-6 h-6" />
+              </div>
+              <h3 className="font-bold text-base">Fare Splitting Engine</h3>
+              <p className="text-xs text-blue-100/80 leading-relaxed font-medium">
+                Automated cost split calculation based on total passengers and custom active fare rates.
+              </p>
             </div>
-            <div className="space-y-1">
-              <div className="text-3xl sm:text-4xl font-extrabold tracking-tight">480 Tons</div>
-              <div className="text-xs sm:text-sm font-semibold text-blue-100 uppercase tracking-wider">CO₂ Emissions Reduced</div>
+            
+            <div className="glass-card bg-white/5 border border-white/10 rounded-2xl p-6 flex flex-col items-center text-center space-y-3">
+              <div className="w-12 h-12 rounded-xl bg-white/10 flex items-center justify-center text-blue-200">
+                <Shield className="w-6 h-6" />
+              </div>
+              <h3 className="font-bold text-base">DynamoDB Datastore</h3>
+              <p className="text-xs text-blue-100/80 leading-relaxed font-medium">
+                Scalable NoSQL schema for storing rides, booking status logs, and verified operator records.
+              </p>
             </div>
           </div>
         </div>
@@ -928,23 +936,12 @@ export default function Home() {
               onClick={() => handleRouteClick(route.from, route.to)}
               className="group bg-white rounded-2xl overflow-hidden shadow-premium border border-slate-100 hover:shadow-2xl cursor-pointer transition-all hover:scale-[1.03] flex flex-col justify-between"
             >
-              <div className="h-40 overflow-hidden relative">
-                <img 
-                  src={route.image} 
-                  alt={`${route.from} to ${route.to}`}
-                  className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" 
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent flex items-end p-4">
-                  <span className="text-white text-xs font-bold bg-brand-blue-600 px-2.5 py-1 rounded-lg">
-                    {route.time}
-                  </span>
-                </div>
-              </div>
-              
-              <div className="p-5 flex-1 flex flex-col justify-between">
-                <div className="space-y-2">
+              <div className="p-6 flex-1 flex flex-col justify-between">
+                <div className="space-y-4">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">One-Way Route</span>
+                    <span className="text-xs font-bold text-brand-blue-600 bg-brand-blue-50 px-2.5 py-1 rounded-lg">
+                      {route.time}
+                    </span>
                     <span className="text-base font-extrabold text-brand-green-600">{route.price} onwards</span>
                   </div>
                   
@@ -1110,45 +1107,6 @@ export default function Home() {
         </div>
       </section>
 
-      {/* TESTIMONIALS SECTION */}
-      <section className="bg-slate-100/50 py-24 px-4 sm:px-6 lg:px-8 border-y border-slate-100">
-        <div className="max-w-7xl mx-auto">
-          <div className="text-center max-w-3xl mx-auto mb-16 space-y-4">
-            <h2 className="text-3xl sm:text-4xl font-extrabold text-slate-900 tracking-tight">
-              Loved by Commuters
-            </h2>
-            <p className="text-lg text-slate-600 font-medium">
-              Read real stories from our regular riders and drivers sharing costs across Tamil Nadu.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            {testimonials.map((test, index) => (
-              <div key={index} className="bg-white p-8 rounded-2xl shadow-premium border border-slate-100 flex flex-col justify-between space-y-6 hover:shadow-2xl transition-all">
-                <div className="space-y-4">
-                  {/* Stars */}
-                  <div className="flex gap-1">
-                    {[...Array(test.rating)].map((_, i) => (
-                      <Star key={i} className="w-4.5 h-4.5 fill-amber-400 text-amber-400" />
-                    ))}
-                  </div>
-                  <p className="text-slate-600 font-medium italic text-sm leading-relaxed">
-                    "{test.quote}"
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-4 pt-4 border-t border-slate-50">
-                  <img src={test.avatar} alt={test.author} className="w-12 h-12 rounded-full object-cover border-2 border-brand-blue-100" />
-                  <div>
-                    <h5 className="font-bold text-slate-900 text-sm">{test.author}</h5>
-                    <p className="text-xs font-semibold text-slate-400">{test.role}</p>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
 
       {/* FOOTER SECTION */}
       <footer className="bg-slate-900 text-white pt-16 pb-12 px-4 sm:px-6 lg:px-8">

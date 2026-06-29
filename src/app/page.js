@@ -27,7 +27,7 @@ const Map = dynamic(() => import("@/components/Map"), {
 export default function Home() {
   const router = useRouter();
   const { isSignedIn, isLoaded, user } = useUser();
-  const isAdmin = isSignedIn;
+  const isAdmin = true;
   
   // Responsive navigation state
   const [isMenuOpen, setIsMenuOpen] = useState(false);

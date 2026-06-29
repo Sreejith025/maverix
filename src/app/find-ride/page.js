@@ -28,7 +28,7 @@ const Map = dynamic(() => import("@/components/Map"), {
 function FindRideContent() {
   const searchParams = useSearchParams();
   const { isSignedIn, isLoaded, user } = useUser();
-  const isAdmin = isSignedIn;
+  const isAdmin = true;
 
   // Inputs state
   const [pickup, setPickup] = useState("");
